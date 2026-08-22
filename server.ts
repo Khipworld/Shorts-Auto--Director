@@ -7,6 +7,7 @@ import { collectSourcesForGroup } from "./src/pipeline/1-data-collection/collect
 import { LIFECYCLE_GROUPS } from "./src/pipeline/1-data-collection/lifecycleGroups";
 import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.server";
 import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
+import { checkConstraints } from "./src/pipeline/4-constraints/checkConstraints.server";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -69,6 +70,22 @@ app.post("/api/pipeline/3/verify", async (req, res) => {
     console.error("Verification error:", error);
     const quota = classifyAnthropicError(String(error?.message || error));
     return res.status(500).json({ error: error?.message || "검증에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [4] 제약조건 파악 — 정치적 편향/명예훼손/미성년자 규제/광고표시/저작권 사전 안내
+app.post("/api/pipeline/4/check", async (req, res) => {
+  try {
+    const { groupId, isSponsoredContent } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") {
+      return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    }
+    const result = await checkConstraints(groupId, { isSponsoredContent });
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Constraint check error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "제약조건 확인에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
   }
 });
 
