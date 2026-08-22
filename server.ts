@@ -8,6 +8,7 @@ import { LIFECYCLE_GROUPS } from "./src/pipeline/1-data-collection/lifecycleGrou
 import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.server";
 import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
 import { checkConstraints } from "./src/pipeline/4-constraints/checkConstraints.server";
+import { generateHookSeo } from "./src/pipeline/5-hook-seo/generateHookSeo.server";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -86,6 +87,22 @@ app.post("/api/pipeline/4/check", async (req, res) => {
     console.error("Constraint check error:", error);
     const quota = classifyAnthropicError(String(error?.message || error));
     return res.status(500).json({ error: error?.message || "제약조건 확인에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [5] 플랫폼별 후킹·SEO 분석
+app.post("/api/pipeline/5/hook-seo", async (req, res) => {
+  try {
+    const { groupId, platforms } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") {
+      return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    }
+    const result = await generateHookSeo(groupId, Array.isArray(platforms) ? platforms : undefined);
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Hook/SEO generation error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "후킹/SEO 생성에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
   }
 });
 
