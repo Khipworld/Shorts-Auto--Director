@@ -4,14 +4,16 @@
 // classification separates real matches from wrong-place/wrong-subject photos very clearly
 // (~0.99 vs <0.1) as long as the labels stay short single-concept phrases — a verbose
 // "e.g. X, Y, Z" negative label confuses the text encoder and collapses that gap.
-import type { ZeroShotImageClassificationPipeline } from "@huggingface/transformers";
+// `any`로 둔 이유: 클라이언트(React, DOM lib)와 같은 tsconfig를 쓰다 보니 @huggingface/
+// transformers의 Pipeline 오버로드 유니언이 DOM 타입과 겹쳐 "union type too complex to
+// represent" 컴파일 에러가 남 — 실제로도 결과를 바로 `as any[]`로 다루고 있어 엄격한 타입이
+// 필요 없는 자리라 그대로 any로 우회.
+let classifierPromise: Promise<any> | null = null;
 
-let classifierPromise: Promise<ZeroShotImageClassificationPipeline> | null = null;
-
-function getClassifier(): Promise<ZeroShotImageClassificationPipeline> {
+function getClassifier(): Promise<any> {
   if (!classifierPromise) {
     classifierPromise = import("@huggingface/transformers").then(({ pipeline }) =>
-      pipeline("zero-shot-image-classification", "Xenova/clip-vit-base-patch32")
+      (pipeline as any)("zero-shot-image-classification", "Xenova/clip-vit-base-patch32")
     );
   }
   return classifierPromise;
