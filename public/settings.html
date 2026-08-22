@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>API 키 설정 — Shorts Auto Director</title>
+<style>
+  body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 20px; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
+  input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 8px; }
+  button { padding: 8px 14px; border: none; border-radius: 4px; background: #2563eb; color: white; cursor: pointer; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .service { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid #eee; }
+  .service:first-child { border-top: none; }
+  .status { font-size: 12px; padding: 2px 8px; border-radius: 100px; }
+  .status.ok { background: #dcfce7; color: #166534; }
+  .status.none { background: #f3f4f6; color: #6b7280; }
+  #login-section.hidden, #keys-section.hidden { display: none; }
+  .msg { font-size: 13px; margin-top: 6px; }
+  .msg.error { color: #b91c1c; }
+  .msg.success { color: #166534; }
+</style>
+</head>
+<body>
+  <h1>Shorts Auto Director — API 키 설정</h1>
+
+  <div class="card" id="login-section">
+    <label for="password">콘솔 비밀번호</label>
+    <input type="password" id="password" placeholder="서버 실행 시 .data/console-password.txt 에 생성됨" />
+    <button onclick="login()">로그인</button>
+    <div class="msg error" id="login-msg"></div>
+  </div>
+
+  <div class="card hidden" id="keys-section">
+    <div id="service-list">불러오는 중...</div>
+  </div>
+
+  <script>
+    let token = "";
+
+    async function login() {
+      const password = document.getElementById("password").value;
+      const msgEl = document.getElementById("login-msg");
+      try {
+        const res = await fetch("/api/settings/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!res.ok) { msgEl.textContent = data.error || "로그인 실패"; return; }
+        token = data.token;
+        msgEl.textContent = "";
+        document.getElementById("login-section").classList.add("hidden");
+        document.getElementById("keys-section").classList.remove("hidden");
+        loadServices();
+      } catch (e) {
+        msgEl.textContent = "서버에 연결할 수 없습니다.";
+      }
+    }
+
+    async function loadServices() {
+      const res = await fetch("/api/settings/api-keys", { headers: { Authorization: "Bearer " + token } });
+      const data = await res.json();
+      const listEl = document.getElementById("service-list");
+      listEl.innerHTML = "";
+      for (const svc of data.services) {
+        const row = document.createElement("div");
+        row.className = "service";
+        row.innerHTML = `
+          <div style="flex:1">
+            <div><b>${svc.label}</b> <span class="status ${svc.hasKey ? "ok" : "none"}">${svc.hasKey ? "등록됨 (" + svc.maskedKey + ")" : "미등록"}</span></div>
+            <div style="font-size:12px;color:#777">${svc.description}</div>
+            <input type="password" placeholder="새 API 키 입력" id="input-${svc.id}" />
+          </div>
+          <button onclick="saveKey('${svc.id}')" style="margin-left:10px">저장</button>
+        `;
+        listEl.appendChild(row);
+      }
+    }
+
+    async function saveKey(id) {
+      const input = document.getElementById("input-" + id);
+      const apiKey = input.value.trim();
+      if (!apiKey) return;
+      const res = await fetch(`/api/settings/api-keys/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ apiKey }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        input.value = "";
+        loadServices();
+      } else {
+        alert(data.error || "저장 실패");
+      }
+    }
+  </script>
+</body>
+</html>

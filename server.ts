@@ -1,4 +1,5 @@
 import express from "express";
+import path from "node:path";
 import dotenv from "dotenv";
 import { registerApiKeyRoutes } from "./apiKeys.server";
 import { findVerifiedPhoto } from "./src/pipeline/7-subtitles-media/imageSearch.server";
@@ -19,6 +20,7 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3100;
 
 app.use(express.json({ limit: "20mb" }));
+app.use(express.static(path.join(process.cwd(), "public")));
 
 // 설정 콘솔: 외부 API 키 등록/테스트 (암호화 저장)
 registerApiKeyRoutes(app);

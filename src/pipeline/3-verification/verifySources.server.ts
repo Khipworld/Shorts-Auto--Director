@@ -43,13 +43,13 @@ const crossCheckSchema = {
   properties: {
     clusters: {
       type: "array",
-      description: "서로 같은 정책/사실을 다루는 항목들끼리 묶은 그룹. 겹치는 다른 항목이 없으면 이 배열에 포함시키지 않아도 됨.",
+      description: "진짜로 동일한 정책/사업을 다루는 항목들끼리만 묶은 그룹 — 시행 주체나 사업명이 다르면 유사해 보여도 별개이므로 묶지 않음. 겹치는 다른 항목이 없으면 이 배열에 포함시키지 않아도 됨.",
       items: {
         type: "object",
         properties: {
           topic: { type: "string", description: "이 그룹이 다루는 정책/사실 (짧게)" },
-          itemIndexes: { type: "array", items: { type: "integer" }, description: "이 그룹에 속하는 항목의 1부터 시작하는 번호들 (2개 이상)" },
-          consistent: { type: "boolean", description: "이 그룹에 속한 항목들이 서로 내용(금액/대상/기간 등)이 일치하는가" },
+          itemIndexes: { type: "array", items: { type: "integer" }, description: "이 그룹에 속하는 항목의 1부터 시작하는 번호들 (2개 이상, 반드시 동일한 정책/사업일 때만)" },
+          consistent: { type: "boolean", description: "같은 사업을 다루는 이 항목들이 금액/대상/기간 등 구체적 수치까지 서로 일치하는가" },
           reasoning: { type: "string", description: "일치/불일치로 판단한 구체적 근거 (어떤 부분이 같거나 다른지)" },
         },
         required: ["topic", "itemIndexes", "consistent", "reasoning"],
@@ -63,8 +63,8 @@ async function crossCheckItems(items: RawCollectedItem[]): Promise<ClusterInfo[]
   if (items.length < 2) return [];
   const itemList = items.map((item, i) => `${i + 1}. ${item.title}\n   ${item.summary}\n   출처: ${item.sourceUrl}`).join("\n\n");
   const result = await callClaudeJSON(
-    "당신은 여러 출처의 내용을 교차 확인하는 팩트체커입니다. 서로 다른 항목이 같은 정책/사실을 다루고 있는지, 다루고 있다면 금액·대상·기간 등 핵심 내용이 일치하는지 확인합니다.",
-    `다음 항목들 중 서로 같은 정책/사실을 다루는 것들을 찾아 그룹으로 묶고, 그룹 내 내용이 일치하는지 확인해주세요.\n\n${itemList}`,
+    "당신은 여러 출처의 내용을 교차 확인하는 팩트체커입니다. 시행 주체(중앙부처 vs 지자체 등)와 사업명이 다르면 이름이 비슷해 보여도 반드시 별개의 정책입니다 — 그런 경우는 애초에 같은 그룹으로 묶지 마세요. 그룹으로 묶는 것은 정말로 동일한 사업/사실을 서로 다른 출처가 설명하고 있을 때만입니다. consistent=false는 '같은 사업'인데 금액·대상 등 구체적 수치가 서로 어긋날 때만 쓰고, 애초에 다른 사업이면 그룹 자체를 만들지 마세요.",
+    `다음 항목들 중 진짜로 동일한 정책/사업을 다루는 것들만 찾아 그룹으로 묶고, 그룹 내 내용이 일치하는지 확인해주세요. 시행 주체나 사업명이 다르면 유사해 보여도 별개 정책이니 묶지 마세요.\n\n${itemList}`,
     "cross_check",
     crossCheckSchema,
     { maxTokens: 1500 }
