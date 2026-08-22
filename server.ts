@@ -5,6 +5,8 @@ import { findVerifiedPhoto } from "./src/pipeline/7-subtitles-media/imageSearch.
 import { splitNarrationIntoSubtitles, classifyAnthropicError } from "./src/pipeline/7-subtitles-media/subtitleSplit.server";
 import { collectSourcesForGroup } from "./src/pipeline/1-data-collection/collectSources.server";
 import { LIFECYCLE_GROUPS } from "./src/pipeline/1-data-collection/lifecycleGroups";
+import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.server";
+import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -35,6 +37,38 @@ app.post("/api/pipeline/1/collect", async (req, res) => {
     console.error("Data collection error:", error);
     const quota = classifyAnthropicError(String(error?.message || error));
     return res.status(500).json({ error: "자료 수집에 실패했습니다.", details: error?.message || error, isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [2] 장단점 분석 — [1]단계 최신 수집 결과 기반 장단점 리포트
+app.post("/api/pipeline/2/analyze", async (req, res) => {
+  try {
+    const { groupId } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") {
+      return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    }
+    const result = await analyzeProsCons(groupId);
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Pros/cons analysis error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "장단점 분석에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [3] 사실/신뢰성 검증 — 교차 확인 + 신뢰도 등급 + 미검증 분리, 판단 근거 로그 포함
+app.post("/api/pipeline/3/verify", async (req, res) => {
+  try {
+    const { groupId } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") {
+      return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    }
+    const result = await verifySourcesForGroup(groupId);
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Verification error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "검증에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
   }
 });
 

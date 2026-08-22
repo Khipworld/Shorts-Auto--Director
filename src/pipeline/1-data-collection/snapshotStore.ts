@@ -79,3 +79,11 @@ export function diffAgainstHistoryAndSave(groupId: string, items: RawCollectedIt
 
   return tagged;
 }
+
+// [2]장단점 분석/[3]검증 단계가 다시 웹 검색을 하지 않고, [1]단계가 이미 모아서 저장해 둔
+// 가장 최근 회차 결과를 그대로 이어받아 쓰기 위한 조회 함수.
+export function getLatestRun(groupId: string): { collectedAt: string; items: RawCollectedItem[] } | null {
+  const file = loadHistory(groupId);
+  const last = file.runs[file.runs.length - 1];
+  return last ?? null;
+}
