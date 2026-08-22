@@ -8,10 +8,15 @@ const PLATFORMS = [
   { id: "instagram_reels", label: "인스타그램 릴스" },
 ];
 
-export default function StartScreen({ onStart }: { onStart: (groupId: string, groupLabel: string, platformId: string) => void }) {
+export default function StartScreen({
+  onStart,
+}: {
+  onStart: (groupId: string, groupLabel: string, platformId: string, isSponsoredContent: boolean) => void;
+}) {
   const [groups, setGroups] = useState<LifecycleGroup[]>([]);
   const [groupId, setGroupId] = useState("");
   const [platformId, setPlatformId] = useState(PLATFORMS[0].id);
+  const [isSponsoredContent, setIsSponsoredContent] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -50,8 +55,17 @@ export default function StartScreen({ onStart }: { onStart: (groupId: string, gr
           ))}
         </select>
 
+        <label className="item-meta" style={{ display: "block", marginTop: 16 }}>
+          <input type="checkbox" checked={isSponsoredContent} onChange={(e) => setIsSponsoredContent(e.target.checked)} />
+          {" "}이 콘텐츠는 정부/기관의 지원(협찬)을 받아 제작됨
+        </label>
+
         <div style={{ marginTop: 20 }}>
-          <button className="primary" disabled={!groupId} onClick={() => onStart(groupId, selectedGroup?.label ?? groupId, platformId)}>
+          <button
+            className="primary"
+            disabled={!groupId}
+            onClick={() => onStart(groupId, selectedGroup?.label ?? groupId, platformId, isSponsoredContent)}
+          >
             시작하기 →
           </button>
         </div>
