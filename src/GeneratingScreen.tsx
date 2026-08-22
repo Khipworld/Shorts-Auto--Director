@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { callPipeline, getJson } from "./api";
+import { callPipeline } from "./api";
 import type { ProjectState } from "./App";
-import type { CollectionResult, VerificationReport, ConstraintReport, HookSeoReport, ScriptResult, SubtitleLine } from "./types";
+import { buildCardsAndHook } from "./buildCards";
+import type { CollectionResult, VerificationReport, ConstraintReport, HookSeoReport, ScriptResult } from "./types";
 
 type StepStatus = "pending" | "active" | "done" | "error";
 interface Step {
@@ -17,8 +18,7 @@ const INITIAL_STEPS: Step[] = [
   { id: "constraints", label: "제약조건 확인", status: "pending" },
   { id: "hookseo", label: "후킹 문구 작성", status: "pending" },
   { id: "script", label: "대본 작성", status: "pending" },
-  { id: "subtitles", label: "자막 생성", status: "pending" },
-  { id: "video", label: "나레이션 음성 + 영상 제작 (시간이 다소 걸립니다)", status: "pending" },
+  { id: "cards", label: "카드뉴스 구성", status: "pending" },
 ];
 
 interface Props {
@@ -28,9 +28,11 @@ interface Props {
   onCancel: () => void;
 }
 
-// [1]자료수집 → [3]검증 → [4]제약조건 → [5]후킹/SEO → [6]대본 → [7]자막 → 영상 렌더링을
-// 전부 내부적으로 순서대로 실행한다. 사용자에게는 진행 상태만 보여주고, [4]단계에서 경고가
-// 나오면(hasBlockingIssue) 그때만 멈춰서 확인을 구한다 — 그 외에는 사람 개입 없이 끝까지 감.
+// [1]자료수집 → [3]검증 → [4]제약조건 → [5]후킹/SEO → [6]대본(제목용) → 카드뉴스 구성까지만
+// 내부적으로 순서대로 실행한다. 실제 영상 렌더링(TTS+ffmpeg, 시간이 걸림)은 여기서 하지 않고
+// 결과 화면(카드 스튜디오)에서 카드 내용을 확인·수정한 뒤 사용자가 직접 트리거한다 — 렌더링을
+// 기다리게 하기 전에 먼저 카드 구조를 빠르게 검토/편집할 수 있게 하기 위함.
+// [4]단계에서 경고가 나오면(hasBlockingIssue) 그때만 멈춰서 확인을 구한다.
 // ([2]장단점 분석은 순수 참고용 리포트라 결과물에 필요하지 않아 이 자동 흐름에서는 생략함.)
 export default function GeneratingScreen({ project, updateProject, onDone, onCancel }: Props) {
   const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
@@ -41,27 +43,6 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
 
   function setStep(id: string, patch: Partial<Step>) {
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  }
-
-  async function pollVideoJob(jobId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const interval = setInterval(async () => {
-        try {
-          const status = await getJson<{ status: string; progress: number; error?: string }>(`/api/video/render/${jobId}/status`);
-          setStep("video", { detail: `${status.progress}%` });
-          if (status.status === "done") {
-            clearInterval(interval);
-            resolve();
-          } else if (status.status === "error") {
-            clearInterval(interval);
-            reject(new Error(status.error || "영상 렌더링에 실패했습니다."));
-          }
-        } catch (e: any) {
-          clearInterval(interval);
-          reject(e);
-        }
-      }, 3000);
-    });
   }
 
   async function runPipeline(skipWarningCheck = false) {
@@ -118,23 +99,11 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
       });
       setStep("script", { status: "done" });
 
-      setStep("subtitles", { status: "active" });
-      const { subtitles } = await callPipeline<{ subtitles: SubtitleLine[] }>("/api/subtitles/split", {
-        narration: script.narration,
-        duration: script.estimatedDurationSec,
-        startTime: 0,
-      });
-      setStep("subtitles", { status: "done" });
-
-      setStep("video", { status: "active" });
-      const { jobId } = await callPipeline<{ jobId: string }>("/api/video/render", {
-        title: script.title,
-        groupLabel: project.groupLabel,
-        aspectRatio: "9:16",
-        subtitles,
-      });
-      await pollVideoJob(jobId);
-      setStep("video", { status: "done" });
+      setStep("cards", { status: "active" });
+      // AI에게 나레이션을 다시 쓰게 하는 대신, 이미 검증을 통과한 항목의 제목/요약을 그대로
+      // 카드로 옮긴다 — 카드 문구에 AI가 지어낸 내용이 섞이지 않게 하기 위함.
+      const { hookHeadline, cards } = buildCardsAndHook(collection, verification, hookSeo, script.title);
+      setStep("cards", { status: "done" });
 
       updateProject((prev) => ({
         ...prev,
@@ -144,9 +113,8 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
         hookSeo,
         hashtags: hookSeo.platforms[0]?.hashtags ?? [],
         script,
-        narration: script.narration,
-        subtitles,
-        videoJobId: jobId,
+        hookHeadline,
+        cards,
       }));
       onDone();
     } catch (e: any) {
