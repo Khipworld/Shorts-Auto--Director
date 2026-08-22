@@ -7,7 +7,8 @@
 // 제목 단어가 상당 부분 등장하는지 별도로 다시 검사한다(checkUnverifiedLeakage).
 import { callClaudeJSON } from "../../core/claude.server";
 import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
-import { verifySourcesForGroup, VerificationResult } from "../3-verification/verifySources.server";
+import { verifySourcesForGroup } from "../3-verification/verifySources.server";
+import { checkUnverifiedLeakage } from "../3-verification/unverifiedLeakCheck";
 import { getPlatformSpec } from "../5-hook-seo/platformSpecs";
 
 export interface ScriptResult {
@@ -33,21 +34,6 @@ const scriptSchema = {
 // Korean narration speaks at roughly 4~5 characters per second — used only as a rough
 // duration estimate for the subtitle-split stage that follows, not an exact spec.
 const KOREAN_CHARS_PER_SEC = 4.5;
-
-function tokenize(text: string): string[] {
-  return text.split(/\s+/).filter(Boolean);
-}
-
-function checkUnverifiedLeakage(narration: string, unverifiedItems: VerificationResult[]): { leaked: boolean; matches: string[] } {
-  const matches: string[] = [];
-  for (const item of unverifiedItems) {
-    const tokens = tokenize(item.title);
-    if (!tokens.length) continue;
-    const matchedCount = tokens.filter((t) => narration.includes(t)).length;
-    if (matchedCount / tokens.length >= 0.7) matches.push(item.title);
-  }
-  return { leaked: matches.length > 0, matches };
-}
 
 export async function generateScript(
   groupId: string,
@@ -75,8 +61,9 @@ export async function generateScript(
     ? `나레이션의 첫 문장은 반드시 다음 후킹 문구로 시작하세요: "${opts.chosenHook}"`
     : "나레이션은 시청자의 시선을 끄는 한 문장으로 시작하세요.";
 
+  const currentYear = new Date().getFullYear();
   const result = await callClaudeJSON(
-    "당신은 정부 지원 정책을 알기 쉽게 설명하는 쇼츠(숏폼) 영상 작가입니다. 아래 제공된 항목에 없는 내용은 절대 추가하지 마세요. 과장이나 확정되지 않은 수치는 쓰지 마세요. 신뢰감 있고 친근한 정보 전달 톤을 씁니다.",
+    `당신은 정부 지원 정책을 알기 쉽게 설명하는 쇼츠(숏폼) 영상 작가입니다. 아래 제공된 항목에 없는 내용은 절대 추가하지 마세요. 과장이나 확정되지 않은 수치는 쓰지 마세요. 신뢰감 있고 친근한 정보 전달 톤을 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 항목에 실제로 나온 연도만 그대로 쓰고, 확인 안 된 연도(특히 ${currentYear - 1}년 등 지난 연도)를 습관적으로 쓰지 마세요.`,
     `"${group.label}" 대상 쇼츠 영상 대본을 작성해주세요. ${hookInstruction}\n\n[사용 가능한 항목 — 이 내용만 근거로 쓸 것]\n${itemList}\n\n[요구사항]\n- 전체 나레이션은 한국어로 약 ${targetCharCount}자 내외(${targetDurationSec}초 분량)\n- 각 항목의 대상 조건과 신청 방법을 자연스럽게 풀어서 설명\n- 출처는 나레이션 안에 URL을 그대로 쓰지 말고 "정부 발표에 따르면" 같은 자연스러운 표현으로 처리`,
     "generate_script",
     scriptSchema,
@@ -94,6 +81,6 @@ export async function generateScript(
     narration,
     estimatedDurationSec: Math.round(narration.length / KOREAN_CHARS_PER_SEC),
     sourceUrlsUsed: usable.map((r) => r.sourceUrl),
-    unverifiedLeakCheck: checkUnverifiedLeakage(narration, unverifiedItems),
+    unverifiedLeakCheck: checkUnverifiedLeakage(narration, unverifiedItems.map((r) => r.title)),
   };
 }
