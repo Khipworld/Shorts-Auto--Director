@@ -13,12 +13,19 @@ npm install
 npm run dev
 ```
 
-첫 실행 시 `.data/console-password.txt`에 설정 콘솔(API 키 관리 화면) 임시 비밀번호가
-자동 생성됩니다. `POST /api/settings/auth`로 로그인 후 `/api/settings/api-keys`에서
-Claude, Unsplash, Pexels, 네이버, ElevenLabs 등의 키를 등록하세요.
+`http://localhost:3100` — K-Street와 같은 온보딩(그룹 선택) → 편집(단계별 실행+직접 수정) →
+출력 화면 구조의 메인 앱. `http://localhost:3100/settings.html` — API 키 등록 화면(최초 1회).
+첫 실행 시 `.data/console-password.txt`에 임시 비밀번호가 자동 생성됩니다. 설정 페이지에서
+Claude, Unsplash, Pexels, 네이버 등의 키를 등록하세요(Claude 키 하나만 있어도 대부분 동작).
+
+`http://localhost:3100/dashboard.html`은 화면 없이 각 API를 하나씩 눌러보던 초기 테스트용
+페이지로, 지금은 메인 앱(`/`)이 실제 사용 화면입니다 — 다만 남겨는 둠(저수준 디버깅용).
 
 ## 구조
 
+- `src/App.tsx`, `StartScreen.tsx`, `EditorScreen.tsx`, `OutputScreen.tsx` — 메인 앱 (K-Street의
+  온보딩→편집 화면 패턴). **앞으로 추가되는 기능도 이 구조(시작 화면 → 편집 화면에서 단계별
+  실행+수정 → 출력 화면) 위에 얹는 것이 기본 방향.**
 - `apiKeys.server.ts` — API 키 관리 콘솔 (암호화 저장)
 - `src/core/` — Claude 호출, 이미지 fetch 등 파이프라인 전체가 공유하는 헬퍼
 - `src/pipeline/1-data-collection` ~ `8-platform-output` — 요구서의 8단계 파이프라인,
