@@ -9,6 +9,8 @@ import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.serv
 import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
 import { checkConstraints } from "./src/pipeline/4-constraints/checkConstraints.server";
 import { generateHookSeo } from "./src/pipeline/5-hook-seo/generateHookSeo.server";
+import { generateScript } from "./src/pipeline/6-script/generateScript.server";
+import { packageOutput } from "./src/pipeline/8-platform-output/packageOutput.server";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -103,6 +105,36 @@ app.post("/api/pipeline/5/hook-seo", async (req, res) => {
     console.error("Hook/SEO generation error:", error);
     const quota = classifyAnthropicError(String(error?.message || error));
     return res.status(500).json({ error: error?.message || "후킹/SEO 생성에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [6] 대본 생성
+app.post("/api/pipeline/6/script", async (req, res) => {
+  try {
+    const { groupId, platformId, chosenHook } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    if (!platformId || typeof platformId !== "string") return res.status(400).json({ error: "platformId 값이 필요합니다." });
+    const result = await generateScript(groupId, platformId, { chosenHook });
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Script generation error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "대본 생성에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
+// [8] 플랫폼별 출력물 생성 — 제목/설명/해시태그/대본/자막을 하나로 묶은 업로드 패키지
+app.post("/api/pipeline/8/package", async (req, res) => {
+  try {
+    const { groupId, platformId } = req.body ?? {};
+    if (!groupId || typeof groupId !== "string") return res.status(400).json({ error: "groupId 값이 필요합니다." });
+    if (!platformId || typeof platformId !== "string") return res.status(400).json({ error: "platformId 값이 필요합니다." });
+    const result = await packageOutput(groupId, platformId);
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Output packaging error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "출력물 패키징에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
   }
 });
 
