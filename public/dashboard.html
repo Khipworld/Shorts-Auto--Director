@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Shorts Auto Director — 파이프라인 대시보드</title>
+<style>
+  body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 860px; margin: 30px auto; padding: 0 20px; color: #1a1a1a; background: #fafafa; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
+  .top-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 24px; background: #fff; padding: 12px; border-radius: 8px; border: 1px solid #e0e0e0; }
+  select, input[type=text] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+  section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+  section h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; padding: 1px 8px; border-radius: 100px; font-weight: normal; }
+  .badge.ok, .badge.verified, .badge.new { background: #dcfce7; color: #166534; }
+  .badge.needs_review, .badge.needs_manual_check, .badge.changed { background: #fef9c3; color: #854d0e; }
+  .badge.warning, .badge.unverified { background: #fee2e2; color: #991b1b; }
+  .badge.unchanged { background: #f3f4f6; color: #6b7280; }
+  button.run { padding: 6px 14px; border: none; border-radius: 4px; background: #2563eb; color: white; cursor: pointer; font-size: 13px; }
+  button.run:disabled { background: #999; cursor: not-allowed; }
+  .item-card { border-top: 1px solid #eee; padding: 10px 0; font-size: 13.5px; }
+  .item-card:first-child { border-top: none; }
+  .item-title { font-weight: 600; margin-bottom: 3px; }
+  .item-meta { color: #888; font-size: 12px; margin-bottom: 4px; }
+  .item-summary { color: #333; }
+  .log-line { color: #666; font-size: 12px; padding-left: 10px; }
+  .empty { color: #999; font-size: 13px; font-style: italic; }
+  .hooks-list, .hashtags, .thumbs { margin: 4px 0; }
+  .hashtags span, .thumbs span { display: inline-block; background: #eef2ff; color: #3730a3; font-size: 12px; padding: 2px 8px; border-radius: 100px; margin: 2px 4px 2px 0; }
+  textarea.narration { width: 100%; box-sizing: border-box; min-height: 100px; font-family: inherit; font-size: 13.5px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+  table.subs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+  table.subs td { border-top: 1px solid #eee; padding: 4px 6px; vertical-align: top; }
+  .error { color: #b91c1c; font-size: 13px; }
+  .checkbox-row { font-size: 13px; margin-bottom: 8px; }
+  .loading { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>Shorts Auto Director — 파이프라인 대시보드</h1>
+  <div class="sub">각 단계 버튼을 순서대로 눌러보세요. [2]~[8]단계는 [1]자료 수집이 먼저 실행돼 있어야 합니다.</div>
+
+  <div class="top-controls">
+    <label>대상 그룹</label>
+    <select id="groupSelect"></select>
+    <label>플랫폼 (5·6·8단계용)</label>
+    <select id="platformSelect">
+      <option value="youtube_shorts">유튜브 쇼츠</option>
+      <option value="tiktok">틱톡</option>
+      <option value="instagram_reels">인스타그램 릴스</option>
+    </select>
+  </div>
+
+  <section>
+    <h2>[1] 자료 수집 <button class="run" onclick="runStage1()">실행</button></h2>
+    <div id="out1" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[2] 장단점 분석 <button class="run" onclick="runStage2()">실행</button></h2>
+    <div id="out2" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[3] 사실/신뢰성 검증 <button class="run" onclick="runStage3()">실행</button></h2>
+    <div id="out3" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[4] 제약조건 파악 <button class="run" onclick="runStage4()">실행</button></h2>
+    <div class="checkbox-row"><label><input type="checkbox" id="isSponsored" /> 이 콘텐츠는 정부/기관의 지원(협찬)을 받아 제작됨</label></div>
+    <div id="out4" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[5] 후킹·SEO 분석 <button class="run" onclick="runStage5()">실행</button></h2>
+    <div id="out5" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[6] 대본 생성 <button class="run" onclick="runStage6()">실행</button></h2>
+    <div id="out6" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <section>
+    <h2>[8] 출력물 패키징 <button class="run" onclick="runStage8()">실행</button></h2>
+    <div id="out8" class="empty">아직 실행 안 함</div>
+  </section>
+
+  <script>
+    function groupId() { return document.getElementById("groupSelect").value; }
+    function platformId() { return document.getElementById("platformSelect").value; }
+    function esc(s) { return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+    async function loadGroups() {
+      const res = await fetch("/api/pipeline/1/groups");
+      const data = await res.json();
+      const sel = document.getElementById("groupSelect");
+      sel.innerHTML = data.groups.map((g) => `<option value="${g.id}">${g.label}</option>`).join("");
+    }
+
+    async function callApi(el, url, body) {
+      const outEl = document.getElementById(el);
+      outEl.innerHTML = '<div class="loading">실행 중... (웹검색/AI 호출 포함, 시간이 걸릴 수 있습니다)</div>';
+      try {
+        const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok) { outEl.innerHTML = `<div class="error">오류: ${esc(data.error)}</div>`; return null; }
+        return data;
+      } catch (e) {
+        outEl.innerHTML = `<div class="error">서버에 연결할 수 없습니다.</div>`;
+        return null;
+      }
+    }
+
+    async function runStage1() {
+      const d = await callApi("out1", "/api/pipeline/1/collect", { groupId: groupId() });
+      if (!d) return;
+      const outEl = document.getElementById("out1");
+      let html = `<div class="item-meta">수집 시각: ${d.collectedAt} · 출처 ${d.distinctSourceCount}개 ${d.belowMinimumSources ? '<span class="badge warning">최소기준(3개) 미달</span>' : ""}</div>`;
+      html += d.sources.map((s) => `
+        <div class="item-card">
+          <div class="item-title">${esc(s.title)} <span class="badge ${s.novelty}">${s.novelty}</span> <span class="badge">${esc(s.trustLabel)}</span></div>
+          <div class="item-summary">${esc(s.summary)}</div>
+          <div class="item-meta"><a href="${esc(s.sourceUrl)}" target="_blank">${esc(s.sourceUrl)}</a></div>
+        </div>`).join("");
+      outEl.innerHTML = html || '<div class="empty">결과 없음</div>';
+    }
+
+    async function runStage2() {
+      const d = await callApi("out2", "/api/pipeline/2/analyze", { groupId: groupId() });
+      if (!d) return;
+      const outEl = document.getElementById("out2");
+      let html = `<div class="item-summary" style="margin-bottom:10px"><b>종합 의견:</b> ${esc(d.overallRecommendation)}</div>`;
+      html += d.items.map((it) => `
+        <div class="item-card">
+          <div class="item-title">${esc(it.title)}</div>
+          <div>👍 ${it.pros.map(esc).join(" · ") || "-"}</div>
+          <div>👎 ${it.cons.map(esc).join(" · ") || "없음"}</div>
+        </div>`).join("");
+      outEl.innerHTML = html;
+    }
+
+    async function runStage3() {
+      const d = await callApi("out3", "/api/pipeline/3/verify", { groupId: groupId() });
+      if (!d) return;
+      const outEl = document.getElementById("out3");
+      outEl.innerHTML = d.results.map((r) => `
+        <div class="item-card">
+          <div class="item-title">${esc(r.title)} <span class="badge ${r.finalStatus}">${r.finalStatus}</span></div>
+          ${r.decisionLog.map((l) => `<div class="log-line">· ${esc(l)}</div>`).join("")}
+        </div>`).join("");
+    }
+
+    async function runStage4() {
+      const isSponsoredEl = document.getElementById("isSponsored");
+      const body = { groupId: groupId(), isSponsoredContent: isSponsoredEl.checked ? true : undefined };
+      const d = await callApi("out4", "/api/pipeline/4/check", body);
+      if (!d) return;
+      const outEl = document.getElementById("out4");
+      let html = d.hasBlockingIssue ? '<div class="error" style="margin-bottom:8px">⚠ 경고 있음 — 진행 전 확인 필요</div>' : "";
+      html += d.checks.map((c) => `
+        <div class="item-card">
+          <div class="item-title">${esc(c.label)} <span class="badge ${c.status}">${c.status}</span></div>
+          <div class="item-summary">${esc(c.detail)}</div>
+        </div>`).join("");
+      outEl.innerHTML = html;
+    }
+
+    async function runStage5() {
+      const d = await callApi("out5", "/api/pipeline/5/hook-seo", { groupId: groupId(), platforms: [platformId()] });
+      if (!d) return;
+      const outEl = document.getElementById("out5");
+      let html = `<div class="item-meta">제외된 미검증 항목: ${d.excludedUnverifiedCount}개</div>`;
+      html += d.platforms.map((p) => `
+        <div class="item-card">
+          <div class="item-title">${esc(p.platformLabel)} (권장 ${p.recommendedDurationSec[0]}~${p.recommendedDurationSec[1]}초)</div>
+          <div class="hooks-list"><b>후킹 문구:</b><ul>${p.hooks.map((h) => `<li>${esc(h)}</li>`).join("")}</ul></div>
+          <div class="hashtags"><b>해시태그:</b><br/>${p.hashtags.map((h) => `<span>${esc(h)}</span>`).join("")}</div>
+          <div class="thumbs"><b>썸네일 문구:</b><br/>${p.thumbnailPhrases.map((h) => `<span>${esc(h)}</span>`).join("")}</div>
+          ${p.removedForUnverified.length ? `<div class="log-line">⚠ 미검증 관련이라 걸러진 항목: ${p.removedForUnverified.map(esc).join(", ")}</div>` : ""}
+        </div>`).join("");
+      outEl.innerHTML = html;
+    }
+
+    async function runStage6() {
+      const d = await callApi("out6", "/api/pipeline/6/script", { groupId: groupId(), platformId: platformId() });
+      if (!d) return;
+      const outEl = document.getElementById("out6");
+      outEl.innerHTML = `
+        <div class="item-title">${esc(d.title)} <span class="badge">${d.estimatedDurationSec}초</span></div>
+        <textarea class="narration" readonly>${esc(d.narration)}</textarea>
+        <div class="item-meta" style="margin-top:6px">출처: ${d.sourceUrlsUsed.map(esc).join(", ")}</div>
+        <div class="item-meta">미검증 누출 검사: ${d.unverifiedLeakCheck.leaked ? '<span class="badge warning">발견됨 — ' + d.unverifiedLeakCheck.matches.join(", ") + '</span>' : '<span class="badge ok">없음</span>'}</div>
+      `;
+    }
+
+    async function runStage8() {
+      const d = await callApi("out8", "/api/pipeline/8/package", { groupId: groupId(), platformId: platformId() });
+      if (!d) return;
+      const outEl = document.getElementById("out8");
+      const subsRows = d.subtitles.map((s) => `<tr><td>${esc(s.start)}~${esc(s.end)}</td><td>${esc(s.text)}</td></tr>`).join("");
+      outEl.innerHTML = `
+        <div class="item-title">${esc(d.title)} <span class="badge">${d.aspectRatio}</span> <span class="badge">${d.estimatedDurationSec}초</span></div>
+        <div class="hashtags">${d.hashtags.map((h) => `<span>${esc(h)}</span>`).join("")}</div>
+        <div class="thumbs" style="margin-top:6px">${d.thumbnailPhrases.map((h) => `<span>${esc(h)}</span>`).join("")}</div>
+        <div style="margin-top:10px"><b>설명(description):</b></div>
+        <textarea class="narration" readonly>${esc(d.description)}</textarea>
+        <div style="margin-top:10px"><b>자막 (${d.subtitles.length}줄):</b></div>
+        <table class="subs">${subsRows}</table>
+      `;
+    }
+
+    loadGroups();
+  </script>
+</body>
+</html>
