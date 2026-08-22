@@ -20,7 +20,7 @@ async function callClaudeMessages(body: Record<string, any>): Promise<any> {
     },
     body: JSON.stringify({ model: CLAUDE_MODEL, ...body }),
   });
-  const data = await res.json().catch(() => ({}));
+  const data: any = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data?.error?.message || `Claude API 오류 (HTTP ${res.status})`);
   }

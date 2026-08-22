@@ -39,7 +39,7 @@ export async function searchWikimediaPhoto(query: string, opts: { perPage?: numb
   try {
     const res = await fetch(url, { headers: { "User-Agent": "ShortsAutoDirector/1.0 (local dev; stock photo search)" } });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data: any = await res.json();
     const pages = data?.query?.pages;
     if (!pages) return null;
     const list = Object.values(pages) as any[];
@@ -69,7 +69,7 @@ export async function searchUnsplashPhoto(
     if (res.status === 403) return { quotaError: true, billingUrl: "https://unsplash.com/developers" };
     return null;
   }
-  const data = await res.json();
+  const data: any = await res.json();
   const results = data.results ?? [];
   if (!results.length) return null;
   const photo = results[index % results.length];
@@ -90,7 +90,7 @@ export async function searchPexelsPhoto(
     if (res.status === 429) return { quotaError: true, billingUrl: "https://www.pexels.com/api/" };
     return null;
   }
-  const data = await res.json();
+  const data: any = await res.json();
   const photos = data.photos ?? [];
   if (!photos.length) return null;
   const photo = photos[index % photos.length];
@@ -125,7 +125,7 @@ export async function searchNaverImagePhoto(
     if (res.status === 429) return { quotaError: true, billingUrl: "https://console.ncloud.com/billing" };
     return null;
   }
-  const data = await res.json();
+  const data: any = await res.json();
   const items = data.items ?? [];
   if (!items.length) return null;
   const item = items[index % items.length];
