@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px; background: #14171A; color: #E9E7E0; font-family: -apple-system, "Malgun Gothic", sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  .row-topic { background: #1F242A; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row-topic label { font-size: 12px; font-weight: 700; display: block; margin-bottom: 8px; }
+  .row-topic input[type=text] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #333A42; background: #262C33; color: #E9E7E0; font-size: 13px; }
+  .note { font-size: 10.5px; color: #E0A75E; margin: 8px 0 0; line-height: 1.4; }
+  .top-row { display: grid; grid-template-columns: 230px 260px 230px; gap: 16px; justify-content: center; margin-bottom: 16px; align-items: stretch; }
+  .panel { background: #1F242A; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; height: 100%; }
+  .center-col { display: flex; flex-direction: column; height: 100%; }
+  .panel-title { font-size: 13px; font-weight: 700; margin: 0 0 12px; }
+  .subhead { font-size: 11px; font-weight: 700; color: #B8BCC2; margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid #2A3038; }
+  .subhead:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+  .mini-file-chip { background: #262C33; border: 1px solid #333A42; border-radius: 6px; padding: 5px 7px; font-size: 10px; color: #B8BCC2; margin-bottom: 6px; }
+  .mini-vol-row { display: flex; align-items: center; gap: 6px; }
+  .mini-vol-row span { font-size: 9.5px; color: #8A8F96; white-space: nowrap; }
+  .pos-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-bottom: 4px; }
+  .pos-btn { border: 1px solid #333A42; border-radius: 6px; padding: 8px 4px; font-size: 10.5px; text-align: center; color: #B8BCC2; cursor: pointer; margin-bottom: 0; }
+  .pos-btn.selected { border: 2px solid #8FADD6; color: #E9E7E0; background: #213040; }
+  select, button, input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #333A42; background: #262C33; color: #E9E7E0; font-size: 12px; margin-bottom: 8px; }
+  button { cursor: pointer; }
+  .device { background: #1F242A; border-radius: 16px; padding: 10px; }
+  .screen { aspect-ratio: 9/16; border-radius: 10px; background: linear-gradient(160deg, #1565c0, #bbdefb); position: relative; overflow: hidden; }
+  .banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.4); color: #fff; font-size: 10px; font-weight: 700; padding: 4px 12px; border-radius: 100px; white-space: nowrap; }
+  .hookbox { position: absolute; left: 14px; right: 14px; top: 55%; transform: translateY(-50%); background: rgba(0,0,0,0.55); border-radius: 8px; padding: 14px; text-align: center; }
+  .hookbox p { font-size: 13px; font-weight: 700; margin: 0; color: #fff; line-height: 1.4; }
+  .progress { position: absolute; bottom: 8px; left: 14px; right: 14px; height: 3px; background: rgba(255,255,255,0.3); border-radius: 2px; }
+  .progress-fill { width: 20%; height: 100%; background: #fff; border-radius: 2px; }
+  .scrubber-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 0 4px; }
+  .scrubber-track { flex: 1; height: 3px; background: #333A42; border-radius: 2px; }
+  .scrubber-fill { width: 15%; height: 100%; background: #33507A; border-radius: 2px; }
+  .time { font-size: 10.5px; color: #8A8F96; white-space: nowrap; }
+  .platform-item { border: 1px solid #333A42; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #B8BCC2; margin-bottom: 8px; }
+  .platform-item.selected { border: 2px solid #8FADD6; color: #E9E7E0; display: flex; justify-content: space-between; align-items: center; }
+  .tag { background: #213040; color: #8FADD6; font-size: 9.5px; padding: 2px 8px; border-radius: 100px; }
+  .section-title { font-size: 13px; font-weight: 700; margin: 0 0 10px; }
+  .audio-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
+  .audio-card { background: #1F242A; border-radius: 10px; padding: 14px; }
+  .audio-card h5 { font-size: 12px; margin: 0 0 8px; }
+  .vol-row { display: flex; align-items: center; gap: 8px; }
+  .vol-row span { font-size: 10px; color: #8A8F96; white-space: nowrap; }
+  input[type=range] { padding: 0; margin: 0; }
+  .file-chip { background: #262C33; border: 1px solid #333A42; border-radius: 6px; padding: 6px 8px; font-size: 10.5px; color: #B8BCC2; margin-bottom: 6px; }
+  .sub-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .sub-table td { padding: 6px 4px; border-top: 1px solid #262C33; vertical-align: middle; }
+  .sub-table .tcell { font-family: monospace; font-size: 10.5px; color: #8A8F96; white-space: nowrap; width: 90px; }
+  .sub-table .lcell { width: 70px; }
+  .seg-tag { font-size: 9px; padding: 2px 7px; border-radius: 100px; font-weight: 700; }
+  .seg-tag.hook { background: #3A2C18; color: #E0A75E; }
+  .seg-tag.body { background: #213040; color: #8FADD6; }
+  .seg-tag.cta { background: #16301F; color: #5FC38A; }
+  .sub-table input[type=text] { margin: 0; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="row-topic">
+    <label>📝 주제 입력</label>
+    <input type="text" value="2026년 청년 지원 정책 총정리" placeholder="예: 2026년 청년 지원 정책" />
+    <p class="note">추가됨: 그룹 선택뿐 아니라 구체적 주제를 직접 입력할 수 있는 칸</p>
+  </div>
+
+  <div class="top-row">
+    <div class="panel">
+      <p class="panel-title">🎙 음성 &amp; 오디오 설정</p>
+
+      <div class="subhead">TTS 성우</div>
+      <select><option>뉴스 앵커 (신뢰감)</option></select>
+      <button>▶ 샘플 재생</button>
+
+      <div class="subhead">BGM 프리셋 &amp; 볼륨</div>
+      <select><option>epic-doc</option><option>emotional-piano</option><option>shorts-synth</option></select>
+      <div class="mini-vol-row"><span>0%</span><input type="range" value="60" /><span>100%</span></div>
+
+      <div class="subhead">내 음원 파일</div>
+      <button>📁 내 음원 파일 추가</button>
+      <div class="mini-file-chip">🎵 my_bgm_track.mp3</div>
+      <div class="mini-vol-row"><span>0%</span><input type="range" value="40" /><span>100%</span></div>
+
+      <div class="subhead">SFX 전환 효과음 &amp; 볼륨</div>
+      <select><option>epic-doc-transition</option><option>shorts-synth-transition</option></select>
+      <div class="mini-vol-row"><span>0%</span><input type="range" value="50" /><span>100%</span></div>
+
+      <p class="note">여전히 미구현 (TTS 고정값, BGM/SFX 전부 새로 구현 필요)</p>
+    </div>
+    <div class="center-col">
+      <div class="device">
+        <div class="screen">
+          <div class="banner">청년 지원정책 안내</div>
+          <div class="hookbox"><p>2026년 청년 지원금 4가지, 이거 모르면 손해입니다</p></div>
+          <div class="progress"><div class="progress-fill"></div></div>
+        </div>
+        <div class="scrubber-row">
+          <span>▶</span>
+          <div class="scrubber-track"><div class="scrubber-fill"></div></div>
+          <span class="time">0:04 / 0:28</span>
+        </div>
+      </div>
+      <p class="note" style="text-align:center;">여전히 미구현 (정적 카드 목업)</p>
+    </div>
+    <div class="panel">
+      <p class="panel-title">📱 플랫폼 &amp; 자막 설정</p>
+
+      <div class="subhead" style="margin-top:0;border-top:none;padding-top:0;">플랫폼 규격</div>
+      <div class="platform-item selected">쇼츠 9:16 <span class="tag">선택됨</span></div>
+      <div class="platform-item">릴스 9:16</div>
+      <div class="platform-item">스토리 9:16</div>
+      <div class="platform-item">세로피드 4:5</div>
+
+      <div class="subhead">자막 위치 조정</div>
+      <div class="mini-vol-row"><span>▲ 위</span><input type="range" value="70" /><span>아래 ▼</span></div>
+      <div class="mini-vol-row"><span>◀ 왼쪽</span><input type="range" value="50" /><span>오른쪽 ▶</span></div>
+      <div class="mini-vol-row"><span>여백</span><input type="range" value="30" /><span>넓게</span></div>
+
+      <p class="note">변경됨: 상/중/하 버튼 → 상하·좌우 슬라이더로 자유 조정 (여백 슬라이더는 기존 유지). 여전히 미구현</p>
+    </div>
+  </div>
+
+  <p class="section-title">✏️ 자막 편집기 (K-Street 쇼츠 출력 참조 — 타임스탬프별 개별 편집)</p>
+  <table class="sub-table">
+    <tr><td class="tcell">00:00–00:03</td><td class="lcell"><span class="seg-tag hook">HOOK</span></td><td><input type="text" value="2026년 청년 지원금 4가지, 이거 모르면 손해입니다" /></td></tr>
+    <tr><td class="tcell">00:03–00:10</td><td class="lcell"><span class="seg-tag body">BODY</span></td><td><input type="text" value="청년미래적금 신규 도입, 최대 2,200만원 지원" /></td></tr>
+    <tr><td class="tcell">00:10–00:17</td><td class="lcell"><span class="seg-tag body">BODY</span></td><td><input type="text" value="청년월세 특별지원, 상시 신청 제도로 전환" /></td></tr>
+    <tr><td class="tcell">00:17–00:23</td><td class="lcell"><span class="seg-tag body">BODY</span></td><td><input type="text" value="청년일자리도약장려금, 지원 대상·규모 확대" /></td></tr>
+    <tr><td class="tcell">00:23–00:28</td><td class="lcell"><span class="seg-tag cta">CTA</span></td><td><input type="text" value="자세한 신청 방법은 각 기관 홈페이지에서 확인하세요" /></td></tr>
+  </table>
+  <p class="note">추가됨: 줄마다 시작~끝 시간 표시 + 바로 옆에서 텍스트 직접 수정 — 현재는 카드 단위로만 편집 가능, 이런 줄 단위 편집은 없음</p>
+
+</div>
+</body>
+</html>
