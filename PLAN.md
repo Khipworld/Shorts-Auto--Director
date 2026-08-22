@@ -37,7 +37,7 @@ main 없이 5개로 흩어져 각각 병렬 작업되던 문제, 병합했다고
 | CLIP 무료 로컬 이미지 관련성 검증 | `clip.server.ts` | `src/pipeline/7-subtitles-media/clipRelevance.server.ts` | 이식 완료 |
 | 자막 재분할 | `server.ts` (`/api/gemini/align-subtitles`) | `src/pipeline/7-subtitles-media/subtitleSplit.server.ts` | 이식 완료 |
 | API 키 관리 콘솔 | `apiKeys.server.ts` | `apiKeys.server.ts` | 이식 완료, Pexels 서비스 추가, YouTube 제외(미사용) |
-| 대본 생성 | `server.ts` (`generate-topic-script` 등) | `src/pipeline/6-script/` | **미이식** — 이 프로젝트 주제에 맞게 프롬프트 새로 작성 필요, 헬퍼만 재사용 |
+| 대본 생성 | `server.ts` (`generate-topic-script` 등) | `src/pipeline/6-script/generateScript.server.ts` | 헬퍼만 재사용, 프롬프트는 새로 작성 완료 |
 | TTS(나레이션 실음성) | `tts-service/` (Coqui XTTS-v2) | — | **재사용 불가** — CPML 비영리 전용 라이선스. ElevenLabs(상업 가능, 콘솔에 이미 등록) 우선 검토 |
 
 ## 신뢰도 등급 (요구서 [3]단계)
@@ -45,14 +45,31 @@ main 없이 5개로 흩어져 각각 병렬 작업되던 문제, 병합했다고
 `src/pipeline/3-verification/sourceTrustTiers.ts` — 공식기관(1등급) > 언론사(2등급) >
 네이버 등 출처 분명한 플랫폼(3등급) > 미검증(4등급, 대본에 자동 반영 안 됨).
 
-## 개발 우선순위
+## 개발 우선순위 — 2026-08-22 MVP 8단계 전부 구현 완료
 
-1순위: [1]자료 수집 → [2]장단점 분석 → [3]검증 (여기까지 완성해 사용자 확인)
-2순위: [4]제약조건 체크리스트
-3순위: [5]후킹·SEO 분석
-4순위: [6]대본 → [7]자막·영상 소재(이식 완료) → [8]플랫폼별 출력물
+1순위: [1]자료 수집 → [2]장단점 분석 → [3]검증 — 완료
+2순위: [4]제약조건 체크리스트 — 완료
+3순위: [5]후킹·SEO 분석 — 완료
+4순위: [6]대본 → [7]자막·영상 소재 → [8]플랫폼별 출력물 — 완료 (`POST /api/pipeline/8/package`로
+[5]→[6]→[7]이 이어져서 제목/설명/해시태그/나레이션/자막/출처가 담긴 업로드 패키지 하나로 나옴)
+
+각 단계 상세와 엔드포인트는 `src/pipeline/<단계>/README.md` 참고.
+
+## 이번 MVP 구현의 알려진 한계
+
+- **실제 AI 호출을 이 세션에서 검증하지 못함** — 이 환경에 Claude API 키가 설정되어 있지 않아
+  typecheck·서버 부팅만 확인했고, `/api/pipeline/1/collect`부터 `/api/pipeline/8/package`까지
+  실제로 한 번도 끝까지 돌려보지 못함. API 키 등록 후 실제 그룹(예: "청년")으로 한 번 전체
+  파이프라인을 실행해 프롬프트/스키마가 기대대로 동작하는지 확인 필요.
+- **이미지 선택이 대본/출력물에 연결 안 됨** — `imageSearch.server.ts`/`clipRelevance.server.ts`는
+  이식만 되어 있고, 어떤 항목에 어떤 사진을 붙일지 결정하는 로직은 미착수.
+- **실제 mp4 렌더링 없음** — [8]단계 출력물은 텍스트/타임스탬프 패키지까지. TTS 라이선스
+  결정(ElevenLabs 검토) 이후 별도 렌더링 백엔드 필요.
+- **광고/협찬 표시 여부**([4]단계)는 매 호출마다 `isSponsoredContent`를 명시적으로 넘겨야
+  자동으로 통과됨 — 안 넘기면 계속 `needs_review`로 남음 (의도된 동작).
 
 ## 미정 사항
 
 - [1]단계에 실제로 쓸 자료수집 API/소스 구체 확정 (정부 정책 자료 특성상 공식 API 위주 검토 필요)
 - 정부지원사업 카테고리 외 다른 카테고리 착수 시점
+- 이미지 선택 로직, 실제 렌더링 백엔드 착수 시점
