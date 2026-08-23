@@ -204,7 +204,17 @@ app.post("/api/subtitles/split", async (req, res) => {
 // 서빙하고, 프로덕션 빌드(dist/)가 있으면 그걸 정적 서빙 + SPA 폴백으로 서빙한다.
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    // 렌더링 중간 산출물(rendered-output/) 은 Vite 감시 대상에서 뺀다.
+    // 안 그러면 슬라이드 HTML을 쓰는 순간 Vite가 파일 변경으로 보고 페이지를 통째로
+    // 새로고침해버려서, 영상 만드는 도중에 화면 상태가 날아가고 완성된 영상을 못 받는다
+    // (전체 흐름을 처음부터 끝까지 돌려보다가 실제로 발견한 문제).
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        watch: { ignored: ["**/rendered-output/**", "**/.data/**"] },
+      },
+      appType: "spa",
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
