@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 // @ts-ignore - ffmpeg-static ships its own .d.ts but as a default export of a path string
 import ffmpegPath from "ffmpeg-static";
 import { pickBackgroundImageDataUrl } from "./backgroundImage.server";
+import { renderSlidesToPng, SlideSpec, SlideTheme, SlideLayout } from "./slideRenderer.server";
 import type { SubtitleLine } from "../7-subtitles-media/subtitleSplit.server";
 
 const OUTPUT_DIR = path.join(process.cwd(), "rendered-output");
@@ -40,6 +41,22 @@ export interface RenderVideoRequest {
   aspectRatio: "9:16" | "16:9";
   voicePreset?: string;
   subtitleLayout?: SubtitleLayoutRequest; // 없으면 기존 동작(하단 고정) 그대로
+
+  // 카드뉴스 방식(참고 영상 `01_임신부_후킹결합.mp4`와 같은 구성)으로 만들 때 쓴다.
+  // 넘기면 슬라이드 이미지를 그려 장면별로 이어 붙이고, 화면 글씨는 카드 자체가 담당하므로
+  // 별도 자막 번인을 하지 않는다. 안 넘기면 기존 방식(AI 배경 1장 + 자막 번인) 그대로.
+  slides?: SlideSpec[];
+  slideTheme?: SlideTheme;
+  bannerText?: string;
+
+  // 나레이션 말하기 속도(0.8~1.8). 기본 1.0은 기존 동작 그대로.
+  // 실측: 로컬 XTTS가 한국어를 느리게 읽어서 같은 내용이 참고 영상(19.9초)의 2배가 넘는
+  // 54초로 나왔음 — 속도를 올려 최적 길이(20~35초)에 맞추기 위한 조절값.
+  speechSpeed?: number;
+
+  // 카드의 설명(핵심 수치)까지 성우가 읽을지. 기본은 읽지 않음(제목만) — 영상이 길어지는
+  // 가장 큰 원인이고, 설명은 어차피 화면에 글씨로 남기 때문.
+  readCardDetail?: boolean;
 }
 
 type JobStatus = "queued" | "picking_image" | "synthesizing_audio" | "rendering" | "done" | "error";
@@ -148,11 +165,11 @@ function dataUriToFile(dataUri: string, destPathNoExt: string): string {
   return destPath;
 }
 
-async function synthesizeLine(text: string, voicePreset: string): Promise<{ audioPath: string; durationSeconds: number }> {
+async function synthesizeLine(text: string, voicePreset: string, speed: number): Promise<{ audioPath: string; durationSeconds: number }> {
   const res = await fetch(`${TTS_BASE_URL}/synthesize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, voicePreset, speed: 1.0 }),
+    body: JSON.stringify({ text, voicePreset, speed }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -172,6 +189,20 @@ interface TimedLine {
   end: number;
 }
 
+// 슬라이드 한 장에서 성우가 읽을 문장.
+//
+// 카드는 제목만 읽고 설명(핵심 수치)은 화면 글씨로만 보여준다 — 카드뉴스의 기본 방식이고,
+// 참고 영상(01_임신부_후킹결합.mp4)도 카드 구간이 카드당 2.7초 정도라 전체를 읽지 않는다.
+// 실측: 제목+설명을 다 읽으면 속도 1.8배로 올려도 31초, 제목만 읽으면 1.4배에서 27초로
+// 최적 길이(20~35초) 안에 들어온다. 설명은 화면에 그대로 남으므로 정보가 사라지지는 않는다.
+// (readDetail을 켜면 예전처럼 설명까지 읽는다.)
+function narrationForSlide(slide: SlideSpec, readDetail: boolean): string {
+  if (slide.kind === "card") {
+    return readDetail ? [slide.title, slide.detail].filter(Boolean).join(". ") : slide.title;
+  }
+  return slide.headline;
+}
+
 async function runRenderJob(jobId: string, body: RenderVideoRequest) {
   ensureDirs();
   const jobDir = path.join(TMP_ROOT, jobId);
@@ -181,18 +212,44 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
 
   try {
     const voicePreset = body.voicePreset || "news-anchor";
+    const speechSpeed = clampNumber(body.speechSpeed, 0.8, 1.8, 1.0);
     const res = RESOLUTIONS[body.aspectRatio] || RESOLUTIONS["9:16"];
+    const ffBin = (ffmpegPath as unknown as string) || "ffmpeg";
+
+    // 카드뉴스 방식이면 슬라이드 이미지를 그리고, 아니면 예전처럼 AI 배경 1장을 쓴다.
+    const useSlides = Array.isArray(body.slides) && body.slides.length > 0;
+    let slideImagePaths: string[] = [];
+    let imagePath = "";
 
     updateJob(jobId, { status: "picking_image", progress: 5 });
-    const backgroundDataUrl = await pickBackgroundImageDataUrl(body.groupLabel, body.title);
-    const imagePath = dataUriToFile(backgroundDataUrl, path.join(jobDir, "background"));
+    if (useSlides) {
+      const theme: SlideTheme = body.slideTheme ?? { gradientFrom: "#1565c0", gradientTo: "#bbdefb", accent: "#1565c0" };
+      const layout: SlideLayout | undefined = body.subtitleLayout
+        ? { vertical: body.subtitleLayout.vertical, horizontal: body.subtitleLayout.horizontal, margin: body.subtitleLayout.margin }
+        : undefined;
+      slideImagePaths = renderSlidesToPng(
+        body.slides!,
+        body.bannerText || `${body.groupLabel} 지원정책 안내`,
+        theme,
+        path.join(jobDir, "slides"),
+        ffBin,
+        layout
+      );
+    } else {
+      const backgroundDataUrl = await pickBackgroundImageDataUrl(body.groupLabel, body.title);
+      imagePath = dataUriToFile(backgroundDataUrl, path.join(jobDir, "background"));
+    }
 
     updateJob(jobId, { status: "synthesizing_audio", progress: 15 });
-    const lines = body.subtitles.map((s) => s.text.trim()).filter(Boolean);
+    // 카드뉴스일 땐 슬라이드마다 읽을 문장이 하나씩 — 슬라이드 수와 나레이션 줄 수가 일치해야
+    // 장면과 음성이 어긋나지 않는다.
+    const lines = useSlides
+      ? body.slides!.map((s) => narrationForSlide(s, body.readCardDetail === true)).map((t) => t.trim()).filter(Boolean)
+      : body.subtitles.map((s) => s.text.trim()).filter(Boolean);
     const timedLines: TimedLine[] = [];
     let cursor = 0;
     for (let i = 0; i < lines.length; i++) {
-      const { audioPath, durationSeconds } = await synthesizeLine(lines[i], voicePreset);
+      const { audioPath, durationSeconds } = await synthesizeLine(lines[i], voicePreset, speechSpeed);
       const destWav = path.join(jobDir, `line_${String(i).padStart(3, "0")}.wav`);
       fs.copyFileSync(audioPath, destWav);
       const start = cursor;
@@ -205,35 +262,54 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
 
     updateJob(jobId, { status: "rendering", progress: 55, totalDurationSeconds: totalDuration });
 
-    const fontsize = body.aspectRatio === "9:16" ? 54 : 42;
-    const placement = resolveSubtitlePlacement(body.subtitleLayout, res, body.aspectRatio);
-    timedLines.forEach((line, idx) => {
-      fs.writeFileSync(path.join(subsDir, `line_${idx}.txt`), wrapForDisplay(line.text, fontsize, placement.wrapWidthPx), { encoding: "utf8" });
-    });
-
     const filterLines: string[] = [];
-    filterLines.push(
-      `[0:v]scale=${res.w}:${res.h}:force_original_aspect_ratio=increase,crop=${res.w}:${res.h},setsar=1,fps=30,format=yuv420p[vimg]`
-    );
+    const ffArgs: string[] = ["-y"];
+    let videoInputCount = 0;
 
-    let videoLabel = "vimg";
-    const fontFilterPath = toFilterPath(FONT_PATH);
-    timedLines.forEach((line, idx) => {
-      const textFilePath = toFilterPath(path.join(subsDir, `line_${idx}.txt`));
-      const nextLabel = `vsub${idx}`;
+    if (useSlides) {
+      // 슬라이드마다 자기 나레이션이 끝날 때까지 화면에 머문다(마지막 장은 끝까지).
+      // 장면 전환이 곧 카드 넘김이라, 참고 영상처럼 카드가 순서대로 넘어간다.
+      slideImagePaths.forEach((p, idx) => {
+        const line = timedLines[idx];
+        const nextStart = idx + 1 < timedLines.length ? timedLines[idx + 1].start : totalDuration;
+        const dur = Math.max(0.4, (line ? nextStart - line.start : totalDuration));
+        ffArgs.push("-loop", "1", "-t", dur.toFixed(3), "-framerate", "30", "-i", p);
+        filterLines.push(`[${idx}:v]scale=${res.w}:${res.h},setsar=1,fps=30,format=yuv420p[vs${idx}]`);
+        videoInputCount++;
+      });
+      const concatIn = slideImagePaths.map((_, i) => `[vs${i}]`).join("");
+      filterLines.push(`${concatIn}concat=n=${slideImagePaths.length}:v=1:a=0[vout]`);
+    } else {
+      const fontsize = body.aspectRatio === "9:16" ? 54 : 42;
+      const placement = resolveSubtitlePlacement(body.subtitleLayout, res, body.aspectRatio);
+      timedLines.forEach((line, idx) => {
+        fs.writeFileSync(path.join(subsDir, `line_${idx}.txt`), wrapForDisplay(line.text, fontsize, placement.wrapWidthPx), { encoding: "utf8" });
+      });
+
+      ffArgs.push("-loop", "1", "-t", totalDuration.toFixed(3), "-framerate", "30", "-i", imagePath);
+      videoInputCount = 1;
       filterLines.push(
-        `[${videoLabel}]drawtext=fontfile='${fontFilterPath}':textfile='${textFilePath}':fontsize=${fontsize}:line_spacing=8:fontcolor=white:borderw=3:bordercolor=black:x=${placement.xExpr}:y=${placement.yExpr}:enable='between(t,${line.start.toFixed(3)},${line.end.toFixed(3)})'[${nextLabel}]`
+        `[0:v]scale=${res.w}:${res.h}:force_original_aspect_ratio=increase,crop=${res.w}:${res.h},setsar=1,fps=30,format=yuv420p[vimg]`
       );
-      videoLabel = nextLabel;
-    });
-    filterLines.push(`[${videoLabel}]copy[vout]`);
 
-    const ffArgs: string[] = ["-y", "-loop", "1", "-t", totalDuration.toFixed(3), "-framerate", "30", "-i", imagePath];
+      let videoLabel = "vimg";
+      const fontFilterPath = toFilterPath(FONT_PATH);
+      timedLines.forEach((line, idx) => {
+        const textFilePath = toFilterPath(path.join(subsDir, `line_${idx}.txt`));
+        const nextLabel = `vsub${idx}`;
+        filterLines.push(
+          `[${videoLabel}]drawtext=fontfile='${fontFilterPath}':textfile='${textFilePath}':fontsize=${fontsize}:line_spacing=8:fontcolor=white:borderw=3:bordercolor=black:x=${placement.xExpr}:y=${placement.yExpr}:enable='between(t,${line.start.toFixed(3)},${line.end.toFixed(3)})'[${nextLabel}]`
+        );
+        videoLabel = nextLabel;
+      });
+      filterLines.push(`[${videoLabel}]copy[vout]`);
+    }
+
     timedLines.forEach((line) => ffArgs.push("-i", line.wavPath));
 
     const audioMixLabels: string[] = [];
     timedLines.forEach((line, idx) => {
-      const inputIdx = 1 + idx;
+      const inputIdx = videoInputCount + idx;
       const ms = Math.max(0, Math.round(line.start * 1000));
       const lbl = `aline${idx}`;
       filterLines.push(`[${inputIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${ms}:all=1[${lbl}]`);
@@ -304,8 +380,11 @@ export function registerVideoRenderRoutes(app: Express) {
 
   app.post("/api/video/render", (req: Request, res: ExpressResponse) => {
     const body = req.body as RenderVideoRequest;
-    if (!body?.title || !Array.isArray(body?.subtitles) || !body.subtitles.length) {
-      return res.status(400).json({ error: "title, subtitles가 필요합니다." });
+    // 카드뉴스 방식이면 slides가, 기존 방식이면 subtitles가 있어야 한다.
+    const hasSlides = Array.isArray(body?.slides) && body.slides.length > 0;
+    const hasSubtitles = Array.isArray(body?.subtitles) && body.subtitles.length > 0;
+    if (!body?.title || (!hasSlides && !hasSubtitles)) {
+      return res.status(400).json({ error: "title과 함께 slides 또는 subtitles가 필요합니다." });
     }
     const jobId = crypto.randomUUID();
     jobs.set(jobId, { id: jobId, status: "queued", progress: 0, createdAt: Date.now() });
