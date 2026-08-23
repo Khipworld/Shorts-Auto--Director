@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { callPipeline, getJson } from "./api";
 import { getCardTheme } from "./cardTheme";
 import { cardsToNarration } from "./buildCards";
-import type { ProjectState, CardItem } from "./App";
+import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat } from "./studioOptions";
+import { buildTimedLines, formatTimecode, totalEstimatedSeconds, SEGMENT_LABEL, OPTIMAL_MAX_SECONDS, OPTIMAL_MIN_SECONDS } from "./subtitleTiming";
+import type { ProjectState, CardItem, AudioSettings, SubtitleLayout } from "./App";
 import type { SubtitleLine } from "./types";
 
 interface Props {
@@ -11,33 +13,51 @@ interface Props {
   onStartOver: () => void;
 }
 
-// "카드 스튜디오" — Viralux 참고 영상과 비교해서 발견한 문제(추상적 AI 배경 이미지가 뭘
-// 뜻하는지 알 수 없음, 나레이션 한 문단은 정보 전달력이 낮음)를 해결하기 위해 정부기관
-// 카드뉴스 표준 포맷(그룹별 고정 색상 + 오프닝 후킹 + 번호/제목/핵심수치 카드)으로
-// 재구성한 편집 화면. 슬라이드(오프닝 후킹 또는 카드 하나)를 골라 실시간으로 미리보고,
-// 텍스트를 고친 뒤 "영상 만들기"로 실제 mp4를 렌더링한다.
+// 쇼츠 스튜디오 — design/main-screen-mockup.html에서 확정한 화면 구성을 그대로 옮긴 것.
+// 좌(음성·오디오) / 중앙(미리보기) / 우(플랫폼·자막 위치) 3단 패널 + 하단 자막 편집기.
+//
+// 자막 편집기는 K-Street의 쇼츠 출력 화면(OutputModals.tsx) 패턴 — 줄마다 타임코드를
+// 보여주고 바로 옆에서 텍스트를 고칠 수 있게 한다. 다만 K-Street와 달리 이 프로젝트의
+// 자막은 카드뉴스 구조라 한 줄이 "제목 + 핵심 수치" 두 조각으로 되어 있어서, 한 줄 안에
+// 두 입력칸을 둔다(그래야 미리보기의 카드 레이아웃이 유지됨).
+//
+// 아직 백엔드가 없는 항목(BGM/SFX/자막 위치)은 화면에서 지우지 않고 "준비중" 배지로
+// 명확히 표시한다 — 실제로 동작하는 것과 아닌 것을 구분해서 보여주기 위함.
 export default function ResultScreen({ project, updateProject, onStartOver }: Props) {
   const theme = getCardTheme(project.groupId);
   const [selected, setSelected] = useState(0); // 0 = 후킹, 1.. = cards[i-1]
   const [rendering, setRendering] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const bgmFileRef = useRef<HTMLInputElement>(null);
 
   const videoUrl = project.videoJobId ? `/api/video/download/${project.videoJobId}` : "";
-  const slideCount = 1 + project.cards.length;
+  const timedLines = buildTimedLines(project.hookHeadline, project.cards);
+  const totalSeconds = totalEstimatedSeconds(timedLines);
+  const format = getFormat(project.formatId);
 
   function update(patch: Partial<ProjectState>) {
     updateProject((prev) => ({ ...prev, ...patch }));
   }
+  function updateAudio(patch: Partial<AudioSettings>) {
+    updateProject((prev) => ({ ...prev, audio: { ...prev.audio, ...patch } }));
+  }
+  function updateLayout(patch: Partial<SubtitleLayout>) {
+    updateProject((prev) => ({ ...prev, subtitleLayout: { ...prev.subtitleLayout, ...patch } }));
+  }
   function updateCard(idx: number, patch: Partial<CardItem>) {
-    const next = [...project.cards];
-    next[idx] = { ...next[idx], ...patch };
-    update({ cards: next });
+    updateProject((prev) => {
+      const next = [...prev.cards];
+      next[idx] = { ...next[idx], ...patch };
+      return { ...prev, cards: next };
+    });
   }
   function removeCard(idx: number) {
-    const next = project.cards.filter((_, i) => i !== idx).map((c, i) => ({ ...c, badge: String(i + 1).padStart(2, "0") }));
-    update({ cards: next });
-    if (selected > next.length) setSelected(next.length);
+    updateProject((prev) => ({
+      ...prev,
+      cards: prev.cards.filter((_, i) => i !== idx).map((c, i) => ({ ...c, badge: String(i + 1).padStart(2, "0") })),
+    }));
+    if (selected > project.cards.length - 1) setSelected(Math.max(0, project.cards.length - 1));
   }
 
   async function renderVideo() {
@@ -46,15 +66,14 @@ export default function ResultScreen({ project, updateProject, onStartOver }: Pr
     setProgress(0);
     try {
       const narration = cardsToNarration(project.hookHeadline, project.cards);
-      const subtitles: SubtitleLine[] = [
-        { start: "00:00", end: "00:00", text: project.hookHeadline },
-        ...project.cards.map((c) => ({ start: "00:00", end: "00:00", text: `${c.title}. ${c.detail}` })),
-      ].filter((s) => s.text.trim());
+      const subtitles: SubtitleLine[] = timedLines.map((l) => ({ start: "00:00", end: "00:00", text: l.text }));
 
       const { jobId } = await callPipeline<{ jobId: string }>("/api/video/render", {
-        title: project.script?.title || project.hookHeadline,
+        title: project.topic || project.script?.title || project.hookHeadline,
         groupLabel: project.groupLabel,
-        aspectRatio: "9:16",
+        aspectRatio: format.ratio,
+        voicePreset: project.audio.voicePreset,
+        subtitleLayout: project.subtitleLayout,
         subtitles,
       });
 
@@ -89,80 +108,224 @@ export default function ResultScreen({ project, updateProject, onStartOver }: Pr
     <div>
       <div className="top-nav">
         <div>
-          <h1>{project.groupLabel} — 카드 스튜디오</h1>
-          <div className="sub">슬라이드를 골라 문구를 고친 뒤 영상을 만드세요. 정부기관 카드뉴스 포맷(오프닝 후킹 + 번호 카드)을 따릅니다.</div>
+          <h1>{project.topic || `${project.groupLabel} 지원정책 안내`}</h1>
+          <div className="sub" style={{ marginBottom: 0 }}>
+            {project.groupLabel} · 슬라이드를 고르고 문구·음성·자막 위치를 조정한 뒤 영상을 만드세요.
+          </div>
         </div>
         <button className="ghost" onClick={onStartOver}>← 새로 시작</button>
       </div>
 
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        {/* 실시간 미리보기 */}
-        <div style={{ flex: "0 0 260px" }}>
-          <SlidePreview theme={theme} groupLabel={project.groupLabel} hookHeadline={project.hookHeadline} cards={project.cards} selected={selected} />
+      <div className="studio-grid">
+        {/* ── 좌: 음성 & 오디오 ── */}
+        <div className="card panel">
+          <div className="card-head"><h2>🎙 음성 &amp; 오디오</h2></div>
+
+          <div className="field-group">
+            <div className="field-label">TTS 성우 <span className="pill pill-live">영상에 반영됨</span></div>
+            <select value={project.audio.voicePreset} onChange={(e) => updateAudio({ voicePreset: e.target.value })}>
+              {VOICE_PRESETS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <button disabled title="성우 미리듣기는 아직 없습니다 — 영상을 만들면 실제 음성을 확인할 수 있습니다." style={{ width: "100%", marginTop: 6 }}>
+              ▶ 샘플 재생 (준비중)
+            </button>
+          </div>
+
+          <div className="field-group">
+            <div className="field-label">BGM 프리셋 <span className="pill pill-todo">준비중</span></div>
+            <select value={project.audio.bgmPreset} onChange={(e) => updateAudio({ bgmPreset: e.target.value })}>
+              {BGM_PRESETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+            <VolumeSlider value={project.audio.bgmVolume} onChange={(v) => updateAudio({ bgmVolume: v })} />
+          </div>
+
+          <div className="field-group">
+            <div className="field-label">내 음원 파일 <span className="pill pill-todo">준비중</span></div>
+            <button style={{ width: "100%" }} onClick={() => bgmFileRef.current?.click()}>📁 내 음원 파일 추가</button>
+            <input
+              ref={bgmFileRef}
+              type="file"
+              accept="audio/*"
+              style={{ display: "none" }}
+              onChange={(e) => updateAudio({ customBgmName: e.target.files?.[0]?.name ?? "" })}
+            />
+            {project.audio.customBgmName && (
+              <div className="file-chip">
+                🎵 {project.audio.customBgmName}
+                <button className="ghost" style={{ padding: 0 }} onClick={() => updateAudio({ customBgmName: "" })}>✕</button>
+              </div>
+            )}
+            <VolumeSlider value={project.audio.customBgmVolume} onChange={(v) => updateAudio({ customBgmVolume: v })} />
+          </div>
+
+          <div className="field-group">
+            <div className="field-label">SFX 전환 효과음 <span className="pill pill-todo">준비중</span></div>
+            <select value={project.audio.sfxPreset} onChange={(e) => updateAudio({ sfxPreset: e.target.value })}>
+              {SFX_PRESETS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <VolumeSlider value={project.audio.sfxVolume} onChange={(v) => updateAudio({ sfxVolume: v })} />
+          </div>
+
+          <div className="item-meta">
+            "준비중"은 화면에서 고를 수는 있지만 아직 실제 영상에는 들어가지 않는 항목입니다
+            (음원 파일과 믹싱 기능이 아직 없습니다).
+          </div>
+        </div>
+
+        {/* ── 중앙: 미리보기 ── */}
+        <div className="studio-center">
+          <SlidePreview
+            theme={theme}
+            groupLabel={project.groupLabel}
+            hookHeadline={project.hookHeadline}
+            cards={project.cards}
+            selected={selected}
+            layout={project.subtitleLayout}
+            ratio={format.ratio}
+          />
           <div className="chips" style={{ marginTop: 10, justifyContent: "center" }}>
             <button className={selected === 0 ? "primary" : ""} onClick={() => setSelected(0)} style={{ padding: "4px 10px", fontSize: 12 }}>후킹</button>
             {project.cards.map((c, i) => (
               <button key={i} className={selected === i + 1 ? "primary" : ""} onClick={() => setSelected(i + 1)} style={{ padding: "4px 10px", fontSize: 12 }}>{c.badge}</button>
             ))}
           </div>
+          <div className="scrubber-row">
+            <span>▶</span>
+            <div className="scrubber-track">
+              <div
+                className="scrubber-fill"
+                style={{ width: timedLines.length ? `${((selected + 1) / timedLines.length) * 100}%` : "0%" }}
+              />
+            </div>
+            <span className="time">예상 {formatTimecode(totalSeconds)}</span>
+          </div>
+          <div className="item-meta" style={{ textAlign: "center" }}>재생 미리보기는 아직 없습니다 — 슬라이드를 눌러 한 장씩 확인하세요.</div>
         </div>
 
-        {/* 편집 패널 */}
-        <div style={{ flex: "1 1 380px", minWidth: 300 }}>
-          <div className="card">
-            {selected === 0 ? (
-              <>
-                <div className="card-head"><h2>오프닝 후킹 문구</h2></div>
-                <textarea
-                  rows={2}
-                  value={project.hookHeadline}
-                  onChange={(e) => update({ hookHeadline: e.target.value })}
-                  placeholder="예: 나만 몰랐던 220만원?"
-                />
-                <div className="item-meta" style={{ marginTop: 6 }}>첫 화면에서 굵게 노출됩니다 — 짧고 구체적인 숫자/질문이 효과적입니다.</div>
-              </>
-            ) : (
-              (() => {
-                const idx = selected - 1;
-                const c = project.cards[idx];
-                if (!c) return null;
-                return (
-                  <>
-                    <div className="card-head">
-                      <h2>카드 {c.badge}</h2>
-                      <button className="ghost" onClick={() => removeCard(idx)}>이 카드 삭제</button>
-                    </div>
-                    <label className="item-meta">제목</label>
-                    <input type="text" value={c.title} onChange={(e) => updateCard(idx, { title: e.target.value })} style={{ width: "100%", marginBottom: 10 }} />
-                    <label className="item-meta">핵심 수치 / 설명</label>
-                    <textarea rows={3} value={c.detail} onChange={(e) => updateCard(idx, { detail: e.target.value })} />
-                  </>
-                );
-              })()
-            )}
-          </div>
+        {/* ── 우: 플랫폼 & 자막 위치 ── */}
+        <div className="card panel">
+          <div className="card-head"><h2>📱 플랫폼 &amp; 자막</h2></div>
 
-          <div className="card">
-            <div className="card-head"><h2>전체 카드 목록 ({project.cards.length}개)</h2></div>
-            {project.cards.map((c, i) => (
-              <div className="item" key={i} style={{ cursor: "pointer" }} onClick={() => setSelected(i + 1)}>
-                <div className="item-title"><span className="badge unchanged">{c.badge}</span>{c.title}</div>
+          <div className="field-group">
+            <div className="field-label">배포 규격 <span className="pill pill-live">영상에 반영됨</span></div>
+            {VIDEO_FORMATS.map((f) => (
+              <div
+                key={f.id}
+                className={`format-item${project.formatId === f.id ? " selected" : ""}${f.supported ? "" : " disabled"}`}
+                onClick={() => f.supported && update({ formatId: f.id })}
+              >
+                <span>{f.label} <span className="ratio">{f.ratio}</span></span>
+                {!f.supported && <span className="pill pill-todo">준비중</span>}
+                {project.formatId === f.id && <span className="pill pill-live">선택됨</span>}
               </div>
             ))}
-            {!project.cards.length && <div className="empty">카드가 없습니다.</div>}
           </div>
 
-          <div className="card">
-            <button className="primary" onClick={renderVideo} disabled={rendering || !slideCount} style={{ width: "100%" }}>
-              {rendering ? `영상 만드는 중... ${progress}%` : videoUrl ? "이 내용으로 다시 만들기" : "이 내용으로 영상 만들기"}
-            </button>
-            {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+          <div className="field-group">
+            <div className="field-label">자막 위치 조정 <span className="pill pill-live">영상에 반영됨</span></div>
+            <SliderRow
+              left="▲ 위" right="아래 ▼"
+              min={10} max={90}
+              value={project.subtitleLayout.vertical}
+              onChange={(v) => updateLayout({ vertical: v })}
+            />
+            <SliderRow
+              left="◀ 왼쪽" right="오른쪽 ▶"
+              min={0} max={100}
+              value={project.subtitleLayout.horizontal}
+              onChange={(v) => updateLayout({ horizontal: v })}
+            />
+            <SliderRow
+              left="여백 좁게" right="넓게"
+              min={2} max={20}
+              value={project.subtitleLayout.margin}
+              onChange={(v) => updateLayout({ margin: v })}
+            />
+            <div className="item-meta">
+              위 미리보기와 실제 영상에 같은 계산식으로 적용됩니다. 글자가 길어도 화면 밖으로
+              나가지 않게 자동으로 안쪽에 묶입니다.
+            </div>
           </div>
         </div>
       </div>
 
+      {/* ── 하단: 자막 편집기 ── */}
+      <div className="card">
+        <div className="card-head">
+          <h2>✏️ 자막 편집기</h2>
+          <span className={`pill ${totalSeconds > OPTIMAL_MAX_SECONDS ? "pill-todo" : "pill-live"}`}>
+            예상 총 길이 {formatTimecode(totalSeconds)}
+          </span>
+        </div>
+
+        {totalSeconds > OPTIMAL_MAX_SECONDS && (
+          <div className="notice">
+            쇼츠 최적 길이({OPTIMAL_MIN_SECONDS}~{OPTIMAL_MAX_SECONDS}초)를 넘습니다 — 카드를 줄이거나 문구를 짧게 하면 끝까지 보는 비율이 올라갑니다.
+          </div>
+        )}
+
+        {!timedLines.length && <div className="empty">자막으로 만들 내용이 없습니다.</div>}
+
+        {timedLines.map((line, i) => {
+          const isHook = line.cardIndex < 0;
+          const card = isHook ? null : project.cards[line.cardIndex];
+          const slideIndex = isHook ? 0 : line.cardIndex + 1;
+          return (
+            <div
+              key={i}
+              className={`sub-row${selected === slideIndex ? " active" : ""}`}
+              onClick={() => setSelected(slideIndex)}
+            >
+              <div className="sub-time">
+                <div className="tc">{formatTimecode(line.startSeconds)}–{formatTimecode(line.endSeconds)}</div>
+                <span className={`seg-tag ${line.kind}`}>{SEGMENT_LABEL[line.kind]}</span>
+              </div>
+              <div className="sub-fields">
+                {isHook ? (
+                  <input
+                    type="text"
+                    value={project.hookHeadline}
+                    placeholder="첫 화면에 굵게 나올 후킹 문구 (예: 나만 몰랐던 220만원?)"
+                    onChange={(e) => update({ hookHeadline: e.target.value })}
+                  />
+                ) : card ? (
+                  <>
+                    <input
+                      type="text"
+                      value={card.title}
+                      placeholder="카드 제목"
+                      onChange={(e) => updateCard(line.cardIndex, { title: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      value={card.detail}
+                      placeholder="핵심 수치 / 한 줄 설명"
+                      onChange={(e) => updateCard(line.cardIndex, { detail: e.target.value })}
+                    />
+                  </>
+                ) : null}
+              </div>
+              {!isHook && (
+                <button className="ghost" onClick={(e) => { e.stopPropagation(); removeCard(line.cardIndex); }}>삭제</button>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="item-meta" style={{ marginTop: 10 }}>
+          시간은 글자 수로 계산한 <b>예상치</b>입니다. 실제 타이밍은 영상을 만들 때 성우가 읽은 길이로 다시 계산됩니다.
+        </div>
+      </div>
+
+      <div className="card">
+        <button className="primary" onClick={renderVideo} disabled={rendering || !timedLines.length} style={{ width: "100%" }}>
+          {rendering ? `영상 만드는 중... ${progress}%` : videoUrl ? "이 내용으로 다시 만들기" : "이 내용으로 영상 만들기"}
+        </button>
+        {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+      </div>
+
       {videoUrl && (
-        <div className="card" style={{ marginTop: 20 }}>
+        <div className="card">
           <div className="card-head"><h2>완성된 영상</h2></div>
           <video key={videoUrl} src={videoUrl} controls style={{ width: "100%", maxWidth: 260, display: "block", margin: "0 auto", borderRadius: 8, background: "#000" }} />
           <div style={{ textAlign: "center", marginTop: 12 }}>
@@ -184,91 +347,79 @@ export default function ResultScreen({ project, updateProject, onStartOver }: Pr
   );
 }
 
+function VolumeSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return <SliderRow left="0%" right="100%" min={0} max={100} value={value} onChange={onChange} />;
+}
+
+function SliderRow({
+  left, right, min, max, value, onChange,
+}: {
+  left: string; right: string; min: number; max: number; value: number; onChange: (v: number) => void;
+}) {
+  return (
+    <div className="slider-row">
+      <span>{left}</span>
+      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <span>{right}</span>
+    </div>
+  );
+}
+
 function SlidePreview({
-  theme,
-  groupLabel,
-  hookHeadline,
-  cards,
-  selected,
+  theme, groupLabel, hookHeadline, cards, selected, layout, ratio,
 }: {
   theme: ReturnType<typeof getCardTheme>;
   groupLabel: string;
   hookHeadline: string;
   cards: CardItem[];
   selected: number;
+  layout: SubtitleLayout;
+  ratio: string;
 }) {
   const card = selected > 0 ? cards[selected - 1] : null;
   const total = 1 + cards.length;
   const progressPct = total > 0 ? ((selected + 1) / total) * 100 : 0;
 
+  // 자막 상자의 폭은 여백 슬라이더로 정하고, 남는 폭 안에서만 좌우로 움직이게 한다 —
+  // 이렇게 하면 좌우 슬라이더를 끝까지 밀어도 상자가 화면 밖으로 나가지 않는다.
+  const boxWidthPct = 100 - layout.margin * 2;
+  const travelPct = 100 - boxWidthPct;
+  const leftPct = travelPct * (layout.horizontal / 100);
+
+  const blockStyle: React.CSSProperties = {
+    position: "absolute",
+    left: `${leftPct}%`,
+    width: `${boxWidthPct}%`,
+    top: `${layout.vertical}%`,
+    transform: "translateY(-50%)",
+  };
+
   return (
     <div
+      className="phone-frame"
       style={{
-        aspectRatio: "9 / 16",
-        borderRadius: 14,
-        overflow: "hidden",
-        position: "relative",
+        aspectRatio: ratio.replace(":", " / "),
         background: `linear-gradient(160deg, ${theme.gradientFrom}, ${theme.gradientTo})`,
-        boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
       }}
     >
-      {/* 상단 배너 */}
-      <div
-        style={{
-          position: "absolute",
-          top: 14,
-          left: "50%",
-          transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.35)",
-          color: "#fff",
-          fontSize: 11,
-          fontWeight: 700,
-          padding: "5px 14px",
-          borderRadius: 100,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {groupLabel} 지원정책 안내
-      </div>
+      <div className="phone-banner">{groupLabel} 지원정책 안내</div>
 
-      {/* 본문: 후킹 or 카드 */}
       {!card ? (
-        <div style={{ position: "absolute", left: 16, right: 16, top: "58%", transform: "translateY(-50%)" }}>
-          <div
-            style={{
-              background: "rgba(0,0,0,0.55)",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 20,
-              lineHeight: 1.35,
-              padding: "18px 16px",
-              borderRadius: 10,
-              textAlign: "center",
-            }}
-          >
-            {hookHeadline || "후킹 문구를 입력하세요"}
-          </div>
+        <div style={blockStyle}>
+          <div className="hook-box">{hookHeadline || "후킹 문구를 입력하세요"}</div>
         </div>
       ) : (
-        <div style={{ position: "absolute", left: 16, right: 16, top: "50%", transform: "translateY(-50%)" }}>
-          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: 700, marginBottom: 8, textAlign: "center" }}>{card.badge}</div>
-          <div
-            style={{
-              background: theme.cardBg,
-              borderRadius: 12,
-              padding: "18px 16px",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontWeight: 800, fontSize: 17, color: "#1a1a1a", marginBottom: 8, lineHeight: 1.3 }}>{card.title}</div>
-            <div style={{ fontSize: 12.5, color: theme.accent, fontWeight: 600, lineHeight: 1.4 }}>{card.detail}</div>
+        <div style={blockStyle}>
+          <div className="card-badge">{card.badge}</div>
+          <div className="news-card" style={{ background: theme.cardBg }}>
+            <div className="news-card-title">{card.title}</div>
+            <div className="news-card-detail" style={{ color: theme.accent }}>{card.detail}</div>
           </div>
         </div>
       )}
 
-      {/* 하단 진행바 */}
-      <div style={{ position: "absolute", bottom: 10, left: 16, right: 16, height: 3, background: "rgba(255,255,255,0.3)", borderRadius: 2 }}>
-        <div style={{ width: `${progressPct}%`, height: "100%", background: "#fff", borderRadius: 2 }} />
+      <div className="phone-progress">
+        <div className="phone-progress-fill" style={{ width: `${progressPct}%` }} />
       </div>
     </div>
   );

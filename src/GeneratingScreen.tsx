@@ -56,14 +56,21 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
         // "수집된 항목이 없다"는 알 수 없는 오류로 나타나므로 여기서 미리 걸러낸다.
         for (let attempt = 1; attempt <= 3; attempt++) {
           setStep("collect", { status: "active", detail: attempt > 1 ? `재시도 ${attempt}/3` : undefined });
-          collection = await callPipeline<CollectionResult>("/api/pipeline/1/collect", { groupId: project.groupId });
+          collection = await callPipeline<CollectionResult>("/api/pipeline/1/collect", {
+            groupId: project.groupId,
+            topic: project.topic || undefined,
+          });
           if (collection.sources.length > 0) break;
         }
         if (!collection || !collection.sources.length) {
-          throw new Error("자료 수집에서 3번 시도해도 결과를 찾지 못했습니다. 다시 시도해주세요.");
+          throw new Error(
+            project.topic
+              ? `"${project.topic}" 주제로 3번 찾아봤지만 근거가 될 자료를 찾지 못했습니다. 주제를 조금 더 넓게 바꿔서 다시 시도해보세요.`
+              : "자료 수집에서 3번 시도해도 결과를 찾지 못했습니다. 다시 시도해주세요."
+          );
         }
         cache.current.collection = collection;
-        setStep("collect", { status: "done", detail: undefined });
+        setStep("collect", { status: "done", detail: `${collection.sources.length}건 · ${collection.searchQuery}` });
       }
 
       let verification = cache.current.verification;
@@ -134,8 +141,12 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
 
   return (
     <div>
-      <h1>{project.groupLabel} 쇼츠 만드는 중...</h1>
-      <div className="sub">자동으로 진행됩니다. 완료되면 영상을 바로 보여드려요.</div>
+      <h1>{project.topic || project.groupLabel} 쇼츠 만드는 중...</h1>
+      <div className="sub">
+        {project.topic
+          ? `${project.groupLabel} 대상 · "${project.topic}" 주제로 자료를 찾고 있습니다.`
+          : "자동으로 진행됩니다. 완료되면 영상을 바로 보여드려요."}
+      </div>
 
       <div className="card">
         {steps.map((s) => (
