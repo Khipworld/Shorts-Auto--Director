@@ -12,6 +12,7 @@ import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
 import { verifySourcesForGroup } from "../3-verification/verifySources.server";
 import { filterLeakedStrings } from "../3-verification/unverifiedLeakCheck";
 import { PLATFORM_SPECS, getPlatformSpec, PlatformSpec } from "./platformSpecs";
+import { AdReferenceReport, formatAdPatternsForPrompt } from "./adReferences.server";
 
 export interface PlatformHookSeo {
   platformId: string;
@@ -29,6 +30,10 @@ export interface HookSeoReport {
   groupLabel: string;
   excludedUnverifiedCount: number;
   platforms: PlatformHookSeo[];
+  // 후킹 문구를 만들 때 실제 광고 사례를 참고했는지 — 화면에서 "사례 근거 있음/없음"을
+  // 구분해 보여주기 위함(참고 없이 만든 걸 있는 것처럼 보이지 않게).
+  adReferenceCount: number;
+  adPatternsUsed: string[];
 }
 
 const hookSeoSchema = {
@@ -51,7 +56,11 @@ const hookSeoSchema = {
   required: ["platforms"],
 };
 
-export async function generateHookSeo(groupId: string, platformIds?: string[]): Promise<HookSeoReport> {
+export async function generateHookSeo(
+  groupId: string,
+  platformIds?: string[],
+  adReferences?: AdReferenceReport
+): Promise<HookSeoReport> {
   const group = getLifecycleGroup(groupId);
   if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
 
@@ -77,7 +86,7 @@ export async function generateHookSeo(groupId: string, platformIds?: string[]): 
   const currentYear = new Date().getFullYear();
   const result = await callClaudeJSON(
     `당신은 쇼츠(숏폼) 영상의 후킹 문구와 SEO 해시태그를 전문으로 다루는 콘텐츠 마케터입니다. 플랫폼마다 톤과 접근을 다르게 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 반드시 항목에 실제로 명시된 연도를 그대로 쓰고, 확인되지 않았다면 아무 연도나 습관적으로 쓰지 마세요(특히 ${currentYear - 1}년처럼 지난 연도를 쓰지 않도록 주의).`,
-    `"${group.label}" 대상의 다음 정부 지원 정책 항목들로 쇼츠를 만듭니다:\n${itemSummaries}${excludedNote}\n\n아래 플랫폼별로 각각 다른 후킹 문구/해시태그/썸네일 문구를 만들어주세요. 위 "다루면 안 되는 항목"과 관련된 키워드나 해시태그는 절대 포함하지 마세요:\n${platformPrompt}`,
+    `"${group.label}" 대상의 다음 정부 지원 정책 항목들로 쇼츠를 만듭니다:\n${itemSummaries}${excludedNote}${formatAdPatternsForPrompt(adReferences)}\n\n아래 플랫폼별로 각각 다른 후킹 문구/해시태그/썸네일 문구를 만들어주세요. 위 "다루면 안 되는 항목"과 관련된 키워드나 해시태그는 절대 포함하지 마세요:\n${platformPrompt}`,
     "generate_hook_seo",
     hookSeoSchema,
     { maxTokens: 2000 }
@@ -107,5 +116,7 @@ export async function generateHookSeo(groupId: string, platformIds?: string[]): 
     groupLabel: group.label,
     excludedUnverifiedCount,
     platforms,
+    adReferenceCount: adReferences?.references.length ?? 0,
+    adPatternsUsed: adReferences?.patterns.map((p) => p.pattern) ?? [],
   };
 }

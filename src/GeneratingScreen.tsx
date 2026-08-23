@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { callPipeline } from "./api";
 import type { ProjectState } from "./App";
 import { buildCardsAndHook } from "./buildCards";
-import type { CollectionResult, VerificationReport, ConstraintReport, HookSeoReport, ScriptResult } from "./types";
+import type { CollectionResult, VerificationReport, ConstraintReport, HookSeoReport, AdReferenceReport, ScriptResult } from "./types";
 
 type StepStatus = "pending" | "active" | "done" | "error";
 interface Step {
@@ -16,6 +16,7 @@ const INITIAL_STEPS: Step[] = [
   { id: "collect", label: "자료 수집", status: "pending" },
   { id: "verify", label: "사실 검증", status: "pending" },
   { id: "constraints", label: "제약조건 확인", status: "pending" },
+  { id: "adrefs", label: "광고 사례 수집·분석", status: "pending" },
   { id: "hookseo", label: "후킹 문구 작성", status: "pending" },
   { id: "script", label: "대본 작성", status: "pending" },
   { id: "cards", label: "카드뉴스 구성", status: "pending" },
@@ -93,9 +94,37 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
       setBlockingWarning(null);
       setStep("constraints", { status: "done" });
 
+      // 후킹 문구를 짓기 전에, 같은 주제로 실제 성과가 났던 숏폼 광고를 먼저 찾아 구조를
+      // 분석한다. 여기서 실패해도 전체를 멈추지 않고 사례 없이 진행한다 — 참고 자료일 뿐
+      // 필수 근거는 아니기 때문(대신 화면에 "사례 없이 생성됨"이라고 표시된다).
+      setStep("adrefs", { status: "active" });
+      let adReferences: AdReferenceReport | undefined;
+      const topicForAds = project.topic || `${project.groupLabel} 정부 지원 정책`;
+      try {
+        adReferences = await callPipeline<AdReferenceReport>("/api/pipeline/5/ad-references", {
+          topic: topicForAds,
+          platformId: project.platformId,
+        });
+        setStep("adrefs", {
+          status: "done",
+          detail: adReferences.references.length
+            ? `사례 ${adReferences.references.length}건 · 패턴 ${adReferences.patterns.length}개`
+            : "참고할 사례를 못 찾음",
+        });
+      } catch (e: any) {
+        setStep("adrefs", { status: "done", detail: "건너뜀 (사례 없이 진행)" });
+      }
+
       setStep("hookseo", { status: "active" });
-      const hookSeo = await callPipeline<HookSeoReport>("/api/pipeline/5/hook-seo", { groupId: project.groupId, platforms: [project.platformId] });
-      setStep("hookseo", { status: "done" });
+      const hookSeo = await callPipeline<HookSeoReport>("/api/pipeline/5/hook-seo", {
+        groupId: project.groupId,
+        platforms: [project.platformId],
+        adReferences,
+      });
+      setStep("hookseo", {
+        status: "done",
+        detail: hookSeo.adReferenceCount ? `사례 ${hookSeo.adReferenceCount}건 참고함` : "사례 참고 없음",
+      });
 
       setStep("script", { status: "active" });
       const chosenHook = hookSeo.platforms[0]?.hooks[0];
@@ -118,6 +147,7 @@ export default function GeneratingScreen({ project, updateProject, onDone, onCan
         verification,
         constraints,
         hookSeo,
+        adReferences,
         hashtags: hookSeo.platforms[0]?.hashtags ?? [],
         script,
         hookHeadline,
