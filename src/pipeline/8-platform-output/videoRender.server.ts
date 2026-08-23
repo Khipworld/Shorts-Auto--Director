@@ -57,6 +57,42 @@ export interface RenderVideoRequest {
   // 카드의 설명(핵심 수치)까지 성우가 읽을지. 기본은 읽지 않음(제목만) — 영상이 길어지는
   // 가장 큰 원인이고, 설명은 어차피 화면에 글씨로 남기 때문.
   readCardDetail?: boolean;
+
+  // 배경음악 / 전환 효과음. 프리셋 id("epic-doc" 등)이거나 "none"/미지정이면 안 넣는다.
+  // 볼륨은 0~100. 음원은 public/audio 아래에 있다(K-Street에서 가져옴, 상업 사용 가능).
+  bgmTrack?: string;
+  bgmVolume?: number;
+  sfxTrack?: string;
+  sfxVolume?: number;
+}
+
+// 프리셋 id → 실제 음원 파일 경로. 목록에 없는 값이나 "none"이면 null(= 안 넣음).
+const AUDIO_DIR = path.join(process.cwd(), "public", "audio");
+const BGM_FILES: Record<string, string> = {
+  "epic-doc": "epic-doc.mp3",
+  "emotional-piano": "emotional-piano.mp3",
+  "shorts-synth": "shorts-synth.mp3",
+  "future-ambient": "future-ambient.mp3",
+};
+const SFX_FILES: Record<string, string> = {
+  "epic-doc": "epic-doc-transition.wav",
+  "emotional-piano": "emotional-piano-transition.wav",
+  "shorts-synth": "shorts-synth-transition.wav",
+  "future-ambient": "future-ambient-transition.wav",
+};
+
+function resolveAudioPath(dir: string, table: Record<string, string>, key?: string): string | null {
+  if (!key || key === "none") return null;
+  const file = table[key];
+  if (!file) return null;
+  const full = path.join(AUDIO_DIR, dir, file);
+  return fs.existsSync(full) ? full : null;
+}
+function resolveBgmPath(key?: string): string | null {
+  return resolveAudioPath("bgm", BGM_FILES, key);
+}
+function resolveSfxPath(key?: string): string | null {
+  return resolveAudioPath("sfx", SFX_FILES, key);
 }
 
 type JobStatus = "queued" | "picking_image" | "synthesizing_audio" | "rendering" | "done" | "error";
@@ -315,6 +351,40 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
       filterLines.push(`[${inputIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${ms}:all=1[${lbl}]`);
       audioMixLabels.push(lbl);
     });
+
+    // ── 배경음악 ──
+    // 나레이션보다 훨씬 작게 깔고, 곡이 영상보다 짧으면 반복하고 길면 잘라낸다.
+    // 끝에서 1.2초 페이드아웃해서 뚝 끊기지 않게 한다.
+    let nextInputIdx = videoInputCount + timedLines.length;
+    const bgmPath = resolveBgmPath(body.bgmTrack);
+    if (bgmPath) {
+      ffArgs.push("-stream_loop", "-1", "-i", bgmPath);
+      const vol = clampNumber(body.bgmVolume, 0, 100, 35) / 100;
+      const fadeStart = Math.max(0, totalDuration - 1.2);
+      filterLines.push(
+        `[${nextInputIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:${totalDuration.toFixed(3)},asetpts=N/SR/TB,volume=${vol.toFixed(3)},afade=t=out:st=${fadeStart.toFixed(3)}:d=1.2[abgm]`
+      );
+      audioMixLabels.push("abgm");
+      nextInputIdx++;
+    }
+
+    // ── 전환 효과음 ──
+    // 장면(슬라이드)이 바뀌는 시점마다 한 번씩. 첫 장면은 시작하자마자라 넣지 않는다.
+    const sfxPath = resolveSfxPath(body.sfxTrack);
+    if (sfxPath && timedLines.length > 1) {
+      const sfxVol = clampNumber(body.sfxVolume, 0, 100, 45) / 100;
+      timedLines.slice(1).forEach((line, i) => {
+        ffArgs.push("-i", sfxPath);
+        const ms = Math.max(0, Math.round(line.start * 1000) - 150); // 장면 전환 살짝 앞서 울리게
+        const lbl = `asfx${i}`;
+        filterLines.push(
+          `[${nextInputIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${sfxVol.toFixed(3)},adelay=${ms}:all=1[${lbl}]`
+        );
+        audioMixLabels.push(lbl);
+        nextInputIdx++;
+      });
+    }
+
     if (audioMixLabels.length > 0) {
       const mixIn = audioMixLabels.map((l) => `[${l}]`).join("");
       filterLines.push(
