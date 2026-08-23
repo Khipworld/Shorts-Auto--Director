@@ -122,6 +122,10 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
         aspectRatio: format.ratio,
         voicePreset: project.audio.voicePreset,
         speechSpeed: project.audio.speechSpeed,
+        bgmTrack: project.audio.bgmPreset,
+        bgmVolume: project.audio.bgmVolume,
+        sfxTrack: project.audio.sfxPreset,
+        sfxVolume: project.audio.sfxVolume,
         subtitleLayout: project.subtitleLayout,
         bannerText: `${project.groupLabel} 지원정책 안내`,
         slideTheme: { gradientFrom: theme.gradientFrom, gradientTo: theme.gradientTo, accent: theme.accent },
@@ -284,7 +288,7 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
           </div>
 
           <div className="field-group">
-            <div className="field-label">BGM 프리셋 <span className="pill pill-todo">준비중</span></div>
+            <div className="field-label">BGM 프리셋 <span className="pill pill-live">영상에 반영됨</span></div>
             <select value={project.audio.bgmPreset} onChange={(e) => updateAudio({ bgmPreset: e.target.value })}>
               {BGM_PRESETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
             </select>
@@ -311,7 +315,7 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
           </div>
 
           <div className="field-group">
-            <div className="field-label">SFX 전환 효과음 <span className="pill pill-todo">준비중</span></div>
+            <div className="field-label">SFX 전환 효과음 <span className="pill pill-live">영상에 반영됨</span></div>
             <select value={project.audio.sfxPreset} onChange={(e) => updateAudio({ sfxPreset: e.target.value })}>
               {SFX_PRESETS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
@@ -319,8 +323,8 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
           </div>
 
           <div className="item-meta">
-            "준비중"은 화면에서 고를 수는 있지만 아직 실제 영상에는 들어가지 않는 항목입니다
-            (음원 파일과 믹싱 기능이 아직 없습니다).
+            BGM은 나레이션보다 작게 깔리고 끝에서 서서히 사라집니다. 효과음은 카드가 넘어갈 때마다
+            울립니다. "내 음원 파일"만 아직 실제 영상에 안 들어갑니다(업로드 기능 미구현).
           </div>
         </div>
 
