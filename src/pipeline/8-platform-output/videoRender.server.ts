@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
 import { pickBackgroundImageDataUrl } from "./backgroundImage.server";
 import { renderSlidesToPng, SlideSpec, SlideTheme, SlideLayout } from "./slideRenderer.server";
+import { renderIntroClip, prependIntro } from "./introAnimator.server";
 import type { SubtitleLine } from "../7-subtitles-media/subtitleSplit.server";
 
 const OUTPUT_DIR = path.join(process.cwd(), "rendered-output");
@@ -64,6 +65,10 @@ export interface RenderVideoRequest {
   bgmVolume?: number;
   sfxTrack?: string;
   sfxVolume?: number;
+
+  // 맨 앞에 붙일 동적 도입부(금색 티켓이 날아오는 3초). 참고 영상 01_임신부편에만 있던
+  // 연출을 프로그램에서 자동으로 만들어 붙인다. false거나 미지정이면 안 붙임.
+  withIntro?: boolean;
 }
 
 // 프리셋 id → 실제 음원 파일 경로. 목록에 없는 값이나 "none"이면 null(= 안 넣음).
@@ -413,8 +418,38 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
       updateJob(jobId, { progress: Math.min(95, 55 + Math.round(Math.max(0, Math.min(1, fraction)) * 40)) });
     });
 
+    // 동적 도입부를 앞에 붙인다. 본편은 이미 완성됐으므로, 도입부만 따로 만들어
+    // 이어 붙이는 방식(본편 내용은 그대로).
+    let deliverPath = finalMp4Path;
+    if (body.withIntro && useSlides) {
+      const first = body.slides![0];
+      const headline = first.kind === "card" ? first.title : first.headline;
+      const badge = first.kind === "card" ? body.groupLabel : first.badge;
+      const theme = body.slideTheme ?? { gradientFrom: "#1565c0", gradientTo: "#bbdefb", accent: "#1565c0" };
+      try {
+        updateJob(jobId, { status: "rendering", progress: 96 });
+        const introPath = renderIntroClip(
+          {
+            gradientTop: theme.gradientFrom,
+            gradientBottom: theme.gradientTo,
+            bannerText: body.bannerText || `${body.groupLabel} 지원정책 안내`,
+            badge,
+            headline,
+          },
+          path.join(jobDir, "intro"),
+          ffBin
+        );
+        const withIntroPath = path.join(jobDir, "with_intro.mp4");
+        prependIntro(introPath, finalMp4Path, withIntroPath, ffBin);
+        deliverPath = withIntroPath;
+      } catch (e: any) {
+        // 도입부는 덤이라 실패해도 본편은 그대로 내보낸다.
+        console.error(`[video-render] job ${jobId} 도입부 생성 실패(본편은 정상):`, e?.message || e);
+      }
+    }
+
     const destPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
-    fs.copyFileSync(finalMp4Path, destPath);
+    fs.copyFileSync(deliverPath, destPath);
     updateJob(jobId, { status: "done", progress: 100, downloadUrl: `/api/video/download/${jobId}` });
     fs.rm(jobDir, { recursive: true, force: true }, () => {});
   } catch (err: any) {
