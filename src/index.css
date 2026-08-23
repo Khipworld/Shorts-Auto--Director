@@ -84,7 +84,112 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { color: #b91c1c; font-size: 13px; }
 .loading { color: #888; font-size: 13px; }
 
-.top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.top-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 16px; }
 .step-row { display: flex; gap: 6px; }
 .step-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; background: #e5e7eb; color: #6b7280; }
 .step-dot.done { background: #2563eb; color: #fff; }
+
+/* ───────── 쇼츠 스튜디오 (design/main-screen-mockup.html 기준) ───────── */
+
+/* 좌(음성·오디오) / 중앙(미리보기) / 우(플랫폼·자막) 3단. 화면이 좁아지면 자동으로
+   한 줄씩 접힌다 — 중앙 미리보기는 세로 영상이라 폭이 좁아도 계속 읽을 수 있다. */
+.studio-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 260px minmax(220px, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+@media (max-width: 860px) {
+  .studio-grid { grid-template-columns: 1fr; justify-items: center; }
+  .studio-grid > * { width: 100%; max-width: 420px; }
+}
+.studio-center { display: flex; flex-direction: column; }
+.panel { padding: 16px; margin-bottom: 0; }
+.panel select, .panel > .field-group > button { width: 100%; }
+
+.field-group { padding-top: 12px; margin-top: 12px; border-top: 1px solid #eee; }
+.field-group:first-of-type { padding-top: 0; margin-top: 0; border-top: none; }
+.field-label {
+  font-size: 12px; font-weight: 600; color: #444;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+
+/* 실제로 영상에 반영되는 항목과, 화면에만 있는 항목을 한눈에 구분하기 위한 배지.
+   화면에 있는 컨트롤이 전부 동작한다고 착각하지 않도록 항상 함께 표시한다. */
+.pill { font-size: 10.5px; padding: 2px 8px; border-radius: 100px; white-space: nowrap; font-weight: 600; }
+.pill-live { background: #dcfce7; color: #166534; }
+.pill-todo { background: #fef3c7; color: #92400e; }
+.pill-preview { background: #dbeafe; color: #1e40af; }
+
+.slider-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.slider-row span { font-size: 10.5px; color: #888; white-space: nowrap; }
+.slider-row input[type=range] { flex: 1; min-width: 0; margin: 0; }
+
+.file-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  background: #f3f4f6; border-radius: 5px; padding: 5px 8px;
+  font-size: 11.5px; color: #444; margin-top: 6px;
+}
+
+.format-item {
+  border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px; margin-bottom: 6px;
+  font-size: 12.5px; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+.format-item:hover { border-color: #93c5fd; }
+.format-item.selected { border: 2px solid #2563eb; padding: 6px 9px; }
+.format-item.disabled { opacity: 0.55; cursor: not-allowed; }
+.format-item.disabled:hover { border-color: #ddd; }
+.format-item .ratio { color: #999; font-size: 11px; }
+
+/* ── 폰 미리보기 ── */
+.phone-frame {
+  border-radius: 14px; overflow: hidden; position: relative;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+}
+.phone-banner {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.35); color: #fff; font-size: 11px; font-weight: 700;
+  padding: 5px 14px; border-radius: 100px; white-space: nowrap;
+}
+.hook-box {
+  background: rgba(0,0,0,0.55); color: #fff; font-weight: 800; font-size: 20px;
+  line-height: 1.35; padding: 18px 16px; border-radius: 10px; text-align: center;
+}
+.card-badge { color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 700; margin-bottom: 8px; text-align: center; }
+.news-card { border-radius: 12px; padding: 18px 16px; text-align: center; }
+.news-card-title { font-weight: 800; font-size: 17px; color: #1a1a1a; margin-bottom: 8px; line-height: 1.3; }
+.news-card-detail { font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.phone-progress { position: absolute; bottom: 10px; left: 16px; right: 16px; height: 3px; background: rgba(255,255,255,0.3); border-radius: 2px; }
+.phone-progress-fill { height: 100%; background: #fff; border-radius: 2px; }
+
+.scrubber-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 0 2px; }
+.scrubber-row > span:first-child { color: #666; font-size: 12px; }
+.scrubber-track { flex: 1; height: 3px; background: #e5e7eb; border-radius: 2px; }
+.scrubber-fill { height: 100%; background: #2563eb; border-radius: 2px; }
+.scrubber-row .time { font-size: 11.5px; color: #888; white-space: nowrap; }
+
+/* ── 자막 편집기 (K-Street 쇼츠 출력 화면 패턴) ── */
+.sub-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  border-top: 1px solid #eee; padding: 9px 6px; cursor: pointer; border-radius: 5px;
+}
+.sub-row:first-of-type { border-top: none; }
+.sub-row:hover { background: #fafbfc; }
+.sub-row.active { background: #eff6ff; }
+.sub-time { width: 108px; flex-shrink: 0; padding-top: 4px; }
+.sub-time .tc { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: #888; margin-bottom: 4px; }
+.sub-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.sub-fields input[type=text] { width: 100%; }
+.sub-fields input[type=text]:nth-child(2) { font-size: 12.5px; color: #555; }
+
+.seg-tag { font-size: 10px; padding: 2px 7px; border-radius: 100px; font-weight: 700; white-space: nowrap; }
+.seg-tag.hook { background: #fef3c7; color: #92400e; }
+.seg-tag.body { background: #dbeafe; color: #1e40af; }
+.seg-tag.cta { background: #dcfce7; color: #166534; }
+
+.notice {
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+  font-size: 12.5px; border-radius: 6px; padding: 9px 12px; margin-bottom: 10px;
+}

@@ -25,12 +25,21 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
   "16:9": { w: 1920, h: 1080 },
 };
 
+// 화면(ResultScreen)의 자막 위치 슬라이더 값. 스튜디오 미리보기와 실제 영상이 어긋나지
+// 않도록, 미리보기가 쓰는 계산식과 똑같은 방식으로 좌표를 구한다.
+export interface SubtitleLayoutRequest {
+  vertical: number; // 0~100 — 자막 상자의 세로 중심 위치 (50이 화면 정중앙)
+  horizontal: number; // 0~100 — 남는 폭 안에서의 좌우 위치 (50이 가운데)
+  margin: number; // 2~20 — 좌우 여백 비율(%). 자막 상자 폭 = 100 - margin*2
+}
+
 export interface RenderVideoRequest {
   title: string;
   groupLabel: string;
   subtitles: SubtitleLine[]; // .text만 사용 — 타이밍은 실제 TTS 길이로 새로 계산함
   aspectRatio: "9:16" | "16:9";
   voicePreset?: string;
+  subtitleLayout?: SubtitleLayoutRequest; // 없으면 기존 동작(하단 고정) 그대로
 }
 
 type JobStatus = "queued" | "picking_image" | "synthesizing_audio" | "rendering" | "done" | "error";
@@ -59,6 +68,58 @@ function toFilterPath(p: string): string {
 // 실제 렌더링해보니 긴 자막 한 줄이 화면 폭(1080px)보다 넓어져서 좌우로 잘리는 문제를
 // 발견함 — drawtext는 자동 줄바꿈을 안 해주므로 폰트 크기 기준으로 대략적인 최대 글자수를
 // 계산해 직접 줄바꿈한다(한글은 대체로 정사각형 폭이라 fontsize를 글자당 폭으로 근사).
+// 자막 위치 슬라이더 값을 ffmpeg drawtext의 x/y 식과 줄바꿈 폭으로 바꾼다.
+//
+// 미리보기(ResultScreen의 SlidePreview)와 계산식을 일부러 똑같이 맞췄다:
+//   자막 상자 폭 = 100 - margin*2 (%)
+//   좌우로 움직일 수 있는 여지 = 100 - 상자폭 = margin*2 (%)
+//   상자 왼쪽 위치 = 여지 * (horizontal/100)
+// 이렇게 하면 좌우 슬라이더를 끝까지 밀어도 상자가 화면 밖으로 나가지 않는다.
+//
+// drawtext의 x/y는 글자 블록의 좌상단이므로, 상자 안에서 가운데 정렬(x)하고
+// 세로는 중심이 vertical% 에 오도록(y) 계산한다. 글자가 길거나 커서 화면을 벗어나는
+// 경우를 대비해 max()/min()으로 화면 안에 묶어 둔다.
+const EDGE_GUARD_PX = 16;
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+export function resolveSubtitlePlacement(
+  layout: SubtitleLayoutRequest | undefined,
+  res: { w: number; h: number },
+  aspectRatio: string
+): { xExpr: string; yExpr: string; wrapWidthPx: number } {
+  if (!layout) {
+    // 예전 요청(슬라이더 값이 없는 경우)은 기존 동작 그대로 — 가운데 정렬 + 하단 고정.
+    return {
+      xExpr: "(w-text_w)/2",
+      yExpr: aspectRatio === "9:16" ? "h-260" : "h-160",
+      wrapWidthPx: res.w - 120,
+    };
+  }
+
+  const vertical = clampNumber(layout.vertical, 0, 100, 58);
+  const horizontal = clampNumber(layout.horizontal, 0, 100, 50);
+  const margin = clampNumber(layout.margin, 0, 40, 8);
+
+  const boxWidthPx = Math.round((res.w * (100 - margin * 2)) / 100);
+  const travelPx = res.w - boxWidthPx;
+  const leftPx = Math.round(travelPx * (horizontal / 100));
+  const centerYPx = Math.round((res.h * vertical) / 100);
+
+  const maxX = res.w - EDGE_GUARD_PX;
+  const maxY = res.h - EDGE_GUARD_PX;
+
+  return {
+    xExpr: `max(${EDGE_GUARD_PX}\\,min(${maxX}-text_w\\,${leftPx}+(${boxWidthPx}-text_w)/2))`,
+    yExpr: `max(${EDGE_GUARD_PX}\\,min(${maxY}-text_h\\,${centerYPx}-text_h/2))`,
+    wrapWidthPx: Math.max(120, boxWidthPx),
+  };
+}
+
 function wrapForDisplay(text: string, fontsize: number, maxWidthPx: number): string {
   const maxCharsPerLine = Math.max(6, Math.floor(maxWidthPx / fontsize));
   const words = text.split(" ");
@@ -145,9 +206,9 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
     updateJob(jobId, { status: "rendering", progress: 55, totalDurationSeconds: totalDuration });
 
     const fontsize = body.aspectRatio === "9:16" ? 54 : 42;
-    const maxTextWidthPx = res.w - 120; // 좌우 여백 60px씩
+    const placement = resolveSubtitlePlacement(body.subtitleLayout, res, body.aspectRatio);
     timedLines.forEach((line, idx) => {
-      fs.writeFileSync(path.join(subsDir, `line_${idx}.txt`), wrapForDisplay(line.text, fontsize, maxTextWidthPx), { encoding: "utf8" });
+      fs.writeFileSync(path.join(subsDir, `line_${idx}.txt`), wrapForDisplay(line.text, fontsize, placement.wrapWidthPx), { encoding: "utf8" });
     });
 
     const filterLines: string[] = [];
@@ -157,12 +218,11 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
 
     let videoLabel = "vimg";
     const fontFilterPath = toFilterPath(FONT_PATH);
-    const baseY = body.aspectRatio === "9:16" ? "h-260" : "h-160";
     timedLines.forEach((line, idx) => {
       const textFilePath = toFilterPath(path.join(subsDir, `line_${idx}.txt`));
       const nextLabel = `vsub${idx}`;
       filterLines.push(
-        `[${videoLabel}]drawtext=fontfile='${fontFilterPath}':textfile='${textFilePath}':fontsize=${fontsize}:line_spacing=8:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=${baseY}:enable='between(t,${line.start.toFixed(3)},${line.end.toFixed(3)})'[${nextLabel}]`
+        `[${videoLabel}]drawtext=fontfile='${fontFilterPath}':textfile='${textFilePath}':fontsize=${fontsize}:line_spacing=8:fontcolor=white:borderw=3:bordercolor=black:x=${placement.xExpr}:y=${placement.yExpr}:enable='between(t,${line.start.toFixed(3)},${line.end.toFixed(3)})'[${nextLabel}]`
       );
       videoLabel = nextLabel;
     });

@@ -38,11 +38,12 @@ app.get("/api/pipeline/1/groups", (_req, res) => {
 // [1] 자료 수집 — 그룹 하나에 대해 웹 검색으로 출처 수집 + 신뢰도 등급 + 신규/변경 판정
 app.post("/api/pipeline/1/collect", async (req, res) => {
   try {
-    const { groupId } = req.body ?? {};
+    const { groupId, topic } = req.body ?? {};
     if (!groupId || typeof groupId !== "string") {
       return res.status(400).json({ error: "groupId 값이 필요합니다." });
     }
-    const result = await collectSourcesForGroup(groupId);
+    // topic은 선택값 — 없으면 그룹 전체를 훑는 기존 동작 그대로.
+    const result = await collectSourcesForGroup(groupId, typeof topic === "string" ? topic : undefined);
     return res.json(result);
   } catch (error: any) {
     console.error("Data collection error:", error);
