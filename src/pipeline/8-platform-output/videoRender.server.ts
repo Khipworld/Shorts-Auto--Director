@@ -26,7 +26,7 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
   "16:9": { w: 1920, h: 1080 },
 };
 
-// 화면(ResultScreen)의 자막 위치 슬라이더 값. 스튜디오 미리보기와 실제 영상이 어긋나지
+// 화면(StudioScreen)의 자막 위치 슬라이더 값. 스튜디오 미리보기와 실제 영상이 어긋나지
 // 않도록, 미리보기가 쓰는 계산식과 똑같은 방식으로 좌표를 구한다.
 export interface SubtitleLayoutRequest {
   vertical: number; // 0~100 — 자막 상자의 세로 중심 위치 (50이 화면 정중앙)
@@ -87,7 +87,7 @@ function toFilterPath(p: string): string {
 // 계산해 직접 줄바꿈한다(한글은 대체로 정사각형 폭이라 fontsize를 글자당 폭으로 근사).
 // 자막 위치 슬라이더 값을 ffmpeg drawtext의 x/y 식과 줄바꿈 폭으로 바꾼다.
 //
-// 미리보기(ResultScreen의 SlidePreview)와 계산식을 일부러 똑같이 맞췄다:
+// 미리보기(StudioScreen의 SlidePreview)와 계산식을 일부러 똑같이 맞췄다:
 //   자막 상자 폭 = 100 - margin*2 (%)
 //   좌우로 움직일 수 있는 여지 = 100 - 상자폭 = margin*2 (%)
 //   상자 왼쪽 위치 = 여지 * (horizontal/100)

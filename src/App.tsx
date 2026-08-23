@@ -1,7 +1,5 @@
 import { useState } from "react";
-import StartScreen from "./StartScreen";
-import GeneratingScreen from "./GeneratingScreen";
-import ResultScreen from "./ResultScreen";
+import StudioScreen from "./StudioScreen";
 import type {
   CollectionResult,
   VerificationReport,
@@ -11,8 +9,6 @@ import type {
   ScriptResult,
   SubtitleLine,
 } from "./types";
-
-export type View = "start" | "generating" | "result";
 
 export interface CardItem {
   badge: string; // "01", "02"...
@@ -83,6 +79,12 @@ export interface StartOptions {
   platformId: string;
   topic: string;
   isSponsoredContent: boolean;
+}
+
+// 화면을 열자마자 스튜디오가 보이도록, 아직 아무것도 만들지 않은 빈 작업물로 시작한다.
+// (예전엔 시작 화면에서 그룹/플랫폼을 고른 뒤에야 작업물이 생겼다.)
+export function blankProject(): ProjectState {
+  return emptyProject({ groupId: "", groupLabel: "", platformId: "youtube_shorts", topic: "", isSponsoredContent: false });
 }
 
 export function emptyProject(opts: StartOptions): ProjectState {
@@ -185,35 +187,21 @@ function demoProject(): ProjectState {
   };
 }
 
+// 화면은 스튜디오 하나뿐이다.
+// 사용자 지시(2026-08-23): 시작 화면과 진행 화면을 없애고 메인 화면에서 바로 시작하며,
+// 대상 그룹·주제는 주제 입력 하나로, 배포 플랫폼은 메인 화면의 배포 규격에 합칠 것.
+// 자료수집~카드뉴스 구성은 내부 작업이라 화면에 단계별로 표시하지 않는다.
 export default function App() {
   const isDemo = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
-  const [view, setView] = useState<View>(isDemo ? "result" : "start");
-  const [project, setProject] = useState<ProjectState | null>(isDemo ? demoProject() : null);
+  const [project, setProject] = useState<ProjectState>(isDemo ? demoProject() : blankProject());
 
-  function startProject(opts: StartOptions) {
-    setProject(emptyProject(opts));
-    setView("generating");
-  }
-
-  const updateProject = (updater: (prev: ProjectState) => ProjectState) =>
-    setProject((prev) => (prev ? updater(prev) : prev));
+  const updateProject = (updater: (prev: ProjectState) => ProjectState) => setProject((prev) => updater(prev));
 
   return (
-    <>
-      {view === "start" && <StartScreen onStart={startProject} />}
-      {view === "generating" && project && (
-        <GeneratingScreen project={project} updateProject={updateProject} onDone={() => setView("result")} onCancel={() => setView("start")} />
-      )}
-      {view === "result" && project && (
-        <ResultScreen
-          project={project}
-          updateProject={updateProject}
-          onStartOver={() => setView("start")}
-          // 스튜디오에서 주제를 고치고 "자료 다시 찾기"를 누른 경우. GeneratingScreen이
-          // 새로 만들어지면서 지금 project.topic으로 파이프라인을 처음부터 다시 돈다.
-          onRegenerate={() => setView("generating")}
-        />
-      )}
-    </>
+    <StudioScreen
+      project={project}
+      updateProject={updateProject}
+      onReset={() => setProject(blankProject())}
+    />
   );
 }

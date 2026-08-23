@@ -1,36 +1,69 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { callPipeline, getJson } from "./api";
 import { getCardTheme } from "./cardTheme";
 import { cardsToNarration } from "./buildCards";
-import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat } from "./studioOptions";
+import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat, TOPIC_EXAMPLES } from "./studioOptions";
 import { buildTimedLines, formatTimecode, totalEstimatedSeconds, SEGMENT_LABEL, OPTIMAL_MAX_SECONDS, OPTIMAL_MIN_SECONDS } from "./subtitleTiming";
+import { inferGroupFromTopic } from "./inferGroup";
+import { usePipeline } from "./usePipeline";
 import type { ProjectState, CardItem, AudioSettings, SubtitleLayout } from "./App";
-import type { SubtitleLine } from "./types";
+import type { SubtitleLine, LifecycleGroup } from "./types";
 
 interface Props {
   project: ProjectState;
   updateProject: (updater: (prev: ProjectState) => ProjectState) => void;
-  onStartOver: () => void;
-  onRegenerate: () => void; // 지금 주제로 자료수집부터 다시 실행
+  onReset: () => void;
 }
 
-// 쇼츠 스튜디오 — design/main-screen-mockup.html에서 확정한 화면 구성을 그대로 옮긴 것.
-// 좌(음성·오디오) / 중앙(미리보기) / 우(플랫폼·자막 위치) 3단 패널 + 하단 자막 편집기.
+// 쇼츠 스튜디오 — 이 프로그램의 유일한 화면.
+// 좌(음성·오디오) / 중앙(미리보기) / 우(배포·자막 위치) 3단 패널 + 하단 자막 편집기,
+// 그리고 맨 위에 주제 입력.
+//
+// 2026-08-23 구조 변경(사용자 지시): 시작 화면과 진행 화면을 없앴다. 대상 그룹은 주제에서
+// 자동으로 알아내고, 배포 플랫폼은 오른쪽 배포 패널에 합쳤으며, 자료수집~카드뉴스 구성은
+// 화면에 단계별로 표시하지 않고 한 줄 상태 표시만 남겼다.
 //
 // 자막 편집기는 K-Street의 쇼츠 출력 화면(OutputModals.tsx) 패턴 — 줄마다 타임코드를
-// 보여주고 바로 옆에서 텍스트를 고칠 수 있게 한다. 다만 K-Street와 달리 이 프로젝트의
-// 자막은 카드뉴스 구조라 한 줄이 "제목 + 핵심 수치" 두 조각으로 되어 있어서, 한 줄 안에
-// 두 입력칸을 둔다(그래야 미리보기의 카드 레이아웃이 유지됨).
+// 보여주고 바로 옆에서 텍스트를 고칠 수 있게 한다. 다만 이 프로젝트의 자막은 카드뉴스
+// 구조라 한 줄이 "제목 + 핵심 수치" 두 조각이라, 한 줄 안에 두 입력칸을 둔다.
 //
-// 아직 백엔드가 없는 항목(BGM/SFX/자막 위치)은 화면에서 지우지 않고 "준비중" 배지로
-// 명확히 표시한다 — 실제로 동작하는 것과 아닌 것을 구분해서 보여주기 위함.
-export default function ResultScreen({ project, updateProject, onStartOver, onRegenerate }: Props) {
+// 아직 백엔드가 없는 항목(BGM/SFX)은 화면에서 지우지 않고 "준비중" 배지로 명확히 표시한다.
+export default function StudioScreen({ project, updateProject, onReset }: Props) {
   const theme = getCardTheme(project.groupId);
   const [selected, setSelected] = useState(0); // 0 = 후킹, 1.. = cards[i-1]
   const [rendering, setRendering] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const bgmFileRef = useRef<HTMLInputElement>(null);
+
+  const [groups, setGroups] = useState<LifecycleGroup[]>([]);
+  const [manualGroupId, setManualGroupId] = useState(""); // 주제로 그룹을 못 알아냈을 때만 씀
+  const pipeline = usePipeline(project, updateProject);
+
+  useEffect(() => {
+    getJson<{ groups: LifecycleGroup[] }>("/api/pipeline/1/groups")
+      .then((d) => setGroups(d.groups))
+      .catch(() => setGroups([]));
+  }, []);
+
+  const guess = inferGroupFromTopic(project.topic, groups);
+  const resolvedGroupId = guess?.groupId || manualGroupId;
+  const resolvedGroupLabel = guess?.groupLabel || groups.find((g) => g.id === manualGroupId)?.label || "";
+  const hasContent = project.cards.length > 0 || project.hookHeadline.trim().length > 0;
+
+  async function startPipeline(skipWarning = false) {
+    if (!resolvedGroupId) return;
+    await pipeline.run(
+      {
+        groupId: resolvedGroupId,
+        groupLabel: resolvedGroupLabel,
+        platformId: project.platformId,
+        topic: project.topic.trim(),
+        isSponsoredContent: project.isSponsoredContent === true,
+      },
+      skipWarning
+    );
+  }
 
   const videoUrl = project.videoJobId ? `/api/video/download/${project.videoJobId}` : "";
   const timedLines = buildTimedLines(project.hookHeadline, project.cards, project.audio.speechSpeed);
@@ -127,37 +160,97 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
     <div>
       <div className="top-nav">
         <div>
-          <h1>{project.groupLabel} 쇼츠 스튜디오</h1>
+          <h1>Shorts Auto Director</h1>
           <div className="sub" style={{ marginBottom: 0 }}>
-            슬라이드를 고르고 문구·음성·자막 위치를 조정한 뒤 영상을 만드세요.
+            주제를 입력하면 자료를 찾아 카드뉴스 쇼츠를 만들어드립니다. 만든 뒤 여기서 바로 고칠 수 있어요.
           </div>
         </div>
-        <button className="ghost" onClick={onStartOver}>← 새로 시작</button>
+        {hasContent && <button className="ghost" onClick={onReset}>← 처음부터</button>}
       </div>
 
-      {/* 주제 입력란 — 목업(design/main-screen-mockup.html) 맨 위에 있던 칸.
-          여기서 고친 주제는 영상 제목에 바로 반영되고, "자료 다시 찾기"를 누르면
-          그 주제로 자료수집부터 다시 돌린다. */}
+      {/* 주제 입력 — 이 화면의 시작점. 대상 그룹은 주제에서 자동으로 알아낸다. */}
       <div className="card topic-bar">
         <div className="field-label" style={{ marginBottom: 8 }}>
-          📝 주제 <span className="pill pill-live">영상 제목에 반영됨</span>
+          📝 어떤 주제로 만들까요?
+          {resolvedGroupLabel && <span className="pill pill-live">{resolvedGroupLabel} 대상</span>}
         </div>
         <div className="topic-row">
           <input
             type="text"
             value={project.topic}
-            placeholder={`예: 2026년 ${project.groupLabel} 지원 정책 총정리`}
+            placeholder="예: 2026년 임신·출산 지원금 총정리"
+            disabled={pipeline.running}
             onChange={(e) => update({ topic: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter" && resolvedGroupId && !pipeline.running) startPipeline(); }}
           />
-          <button onClick={() => onRegenerate()} disabled={rendering}>
-            이 주제로 자료 다시 찾기
+          <button
+            className="primary"
+            disabled={pipeline.running || rendering || !project.topic.trim() || !resolvedGroupId}
+            onClick={() => startPipeline()}
+          >
+            {pipeline.running ? "만드는 중..." : hasContent ? "이 주제로 다시 만들기" : "만들기 →"}
           </button>
         </div>
-        <div className="item-meta" style={{ marginTop: 6 }}>
-          주제만 고치면 영상 제목이 바뀝니다. 카드 내용까지 새 주제에 맞게 바꾸려면
-          "자료 다시 찾기"를 누르세요 — 자료수집부터 다시 돌아가며 지금 편집한 내용은 사라집니다.
-        </div>
+
+        {/* 주제에서 대상을 못 알아낸 경우에만 물어본다 — 아무거나 찍어서 진행하지 않기 위함 */}
+        {project.topic.trim() && !guess && (
+          <div className="topic-row" style={{ marginTop: 8 }}>
+            <select value={manualGroupId} onChange={(e) => setManualGroupId(e.target.value)} style={{ flex: 1 }}>
+              <option value="">주제에서 대상을 알아내지 못했습니다 — 직접 골라주세요</option>
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {guess && (
+          <div className="item-meta" style={{ marginTop: 6 }}>
+            주제에 들어간 "{guess.matchedWord}" → <b>{guess.groupLabel}</b> 대상으로 자료를 찾습니다.
+          </div>
+        )}
+
+        {!project.topic.trim() && (
+          <div className="chips" style={{ marginTop: 8 }}>
+            {Object.values(TOPIC_EXAMPLES).slice(0, 3).map((t) => (
+              <button key={t} type="button" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => update({ topic: t })}>
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <label className="item-meta" style={{ display: "block", marginTop: 10 }}>
+          <input
+            type="checkbox"
+            checked={project.isSponsoredContent === true}
+            onChange={(e) => update({ isSponsoredContent: e.target.checked })}
+          />{" "}
+          이 콘텐츠는 정부/기관의 지원(협찬)을 받아 제작됨
+        </label>
+
+        {pipeline.running && <div className="notice" style={{ marginTop: 10 }}>⏳ {pipeline.statusText}</div>}
+        {pipeline.error && <div className="error" style={{ marginTop: 8 }}>{pipeline.error}</div>}
+
+        {pipeline.blockingWarning && (
+          <div className="notice" style={{ marginTop: 10 }}>
+            <b>진행 전 확인이 필요합니다</b>
+            {pipeline.blockingWarning.checks.filter((c) => c.status === "warning").map((c, i) => (
+              <div key={i} style={{ marginTop: 6 }}>· {c.label}: {c.detail}</div>
+            ))}
+            <div style={{ marginTop: 10 }}>
+              <button className="primary" onClick={() => startPipeline(true)}>그래도 계속</button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {!hasContent && !pipeline.running && (
+        <div className="card">
+          <div className="empty">
+            아직 만든 내용이 없습니다. 위에 주제를 입력하고 "만들기"를 누르면 자료를 찾아
+            카드뉴스를 구성해드립니다(1~3분 정도 걸립니다).
+          </div>
+        </div>
+      )}
 
       <div className="studio-grid">
         {/* ── 좌: 음성 & 오디오 ── */}
@@ -261,9 +354,28 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
           <div className="item-meta" style={{ textAlign: "center" }}>재생 미리보기는 아직 없습니다 — 슬라이드를 눌러 한 장씩 확인하세요.</div>
         </div>
 
-        {/* ── 우: 플랫폼 & 자막 위치 ── */}
+        {/* ── 우: 배포 & 자막 위치 ──
+             예전 시작 화면에 있던 "배포 플랫폼" 선택을 여기로 합쳤다(사용자 지시).
+             플랫폼은 후킹 문구·해시태그를 그 플랫폼에 맞게 만드는 데 쓰이고,
+             배포 규격은 실제 영상의 화면 비율을 정한다. */}
         <div className="card panel">
-          <div className="card-head"><h2>📱 플랫폼 &amp; 자막</h2></div>
+          <div className="card-head"><h2>📱 배포 &amp; 자막</h2></div>
+
+          <div className="field-group">
+            <div className="field-label">배포 플랫폼 <span className="pill pill-live">후킹·해시태그에 반영됨</span></div>
+            <select
+              value={project.platformId}
+              disabled={pipeline.running}
+              onChange={(e) => update({ platformId: e.target.value })}
+            >
+              <option value="youtube_shorts">유튜브 쇼츠</option>
+              <option value="tiktok">틱톡</option>
+              <option value="instagram_reels">인스타그램 릴스</option>
+            </select>
+            <div className="item-meta">
+              플랫폼을 바꾸면 다음에 "만들기"를 눌렀을 때부터 반영됩니다.
+            </div>
+          </div>
 
           <div className="field-group">
             <div className="field-label">배포 규격 <span className="pill pill-live">영상에 반영됨</span></div>
