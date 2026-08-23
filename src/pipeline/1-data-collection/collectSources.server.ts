@@ -9,11 +9,17 @@ import { callClaudeText, callClaudeJSON } from "../../core/claude.server";
 import { classifySourceTrust, TrustTierDef } from "../3-verification/sourceTrustTiers";
 import { diffAgainstHistoryAndSave, RawCollectedItem } from "./snapshotStore";
 import { getLifecycleGroup } from "./lifecycleGroups";
+import { checkRegionScope } from "./regionScope";
 
 export interface CollectedSource extends RawCollectedItem {
   trustTier: TrustTierDef["tier"];
   trustLabel: string;
   novelty: "new" | "changed" | "unchanged";
+}
+
+export interface ExcludedRegionalItem {
+  title: string;
+  reason: string;
 }
 
 export interface CollectionResult {
@@ -25,6 +31,8 @@ export interface CollectionResult {
   sources: CollectedSource[];
   distinctSourceCount: number;
   belowMinimumSources: boolean; // 요구서: 최소 3개 이상 서로 다른 출처 확보가 기본 기준
+  // 지역 한정이라 뺀 항목들 — 조용히 버리지 않고 무엇을 왜 뺐는지 남긴다.
+  excludedRegional: ExcludedRegionalItem[];
 }
 
 const extractionSchema = {
@@ -53,7 +61,9 @@ const extractionSchema = {
 const MAX_TOPIC_LENGTH = 120;
 
 function buildSearchPrompt(groupLabel: string, searchHint: string, topic?: string): string {
-  const common = `정부24, 고용노동부, 행정안전부 등 공식 사이트는 직접 접근이 막혀 있을 수 있으니, 언론 보도나 복지로(bokjiro.go.kr)·정부 부처 보도자료를 인용한 뉴스 기사 등 2차 출처를 적극 활용하세요. 항목마다 제목, 대상/지원 내용/신청 방법 요약, 실제 출처 URL을 반드시 포함해서 답해주세요. 최소 3개 이상 서로 다른 출처에서 찾아주세요.`;
+  const common = `정부24, 고용노동부, 행정안전부 등 공식 사이트는 직접 접근이 막혀 있을 수 있으니, 언론 보도나 복지로(bokjiro.go.kr)·정부 부처 보도자료를 인용한 뉴스 기사 등 2차 출처를 적극 활용하세요. 항목마다 제목, 대상/지원 내용/신청 방법 요약, 실제 출처 URL을 반드시 포함해서 답해주세요. 최소 3개 이상 서로 다른 출처에서 찾아주세요.
+
+전국 어디서나 신청할 수 있는 사업 위주로 찾아주세요. 특정 시·군·구에서만 되는 지자체 사업은 대부분의 시청자에게 해당되지 않으므로 넣지 마세요.`;
 
   if (!topic) {
     return `"${groupLabel}"(${searchHint}) 대상의 최근 신규 또는 변경된 정부 지원사업/정책을 조사해주세요. ${common}`;
@@ -92,9 +102,21 @@ export async function collectSourcesForGroup(groupId: string, rawTopic?: string)
     { maxTokens: 2000 }
   );
 
-  const rawItems: RawCollectedItem[] = Array.isArray(structured?.items)
+  const allItems: RawCollectedItem[] = Array.isArray(structured?.items)
     ? structured.items.filter((i: any) => i?.title && i?.summary && i?.sourceUrl)
     : [];
+
+  // 특정 지자체에서만 되는 사업은 전국 대상 영상에 넣으면 대부분의 시청자에게 쓸모없다
+  // (실사용 테스트에서 "경남 양산시" 사업이 카드로 들어온 걸 보고 넣은 규칙).
+  const excludedRegional: ExcludedRegionalItem[] = [];
+  const rawItems = allItems.filter((item) => {
+    const scope = checkRegionScope(item.title, item.summary);
+    if (scope.isRegional) {
+      excludedRegional.push({ title: item.title, reason: scope.reason });
+      return false;
+    }
+    return true;
+  });
 
   const tagged = diffAgainstHistoryAndSave(groupId, rawItems, topic);
 
@@ -114,5 +136,6 @@ export async function collectSourcesForGroup(groupId: string, rawTopic?: string)
     sources,
     distinctSourceCount,
     belowMinimumSources: distinctSourceCount < 3,
+    excludedRegional,
   };
 }
