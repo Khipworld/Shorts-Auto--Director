@@ -33,6 +33,7 @@ export interface SubtitleLayout {
 // BGM/SFX는 아직 음원 파일도 믹싱 백엔드도 없어서 화면 상태로만 보관한다.
 export interface AudioSettings {
   voicePreset: string;
+  speechSpeed: number; // 나레이션 말하기 속도 (0.8~1.8). 영상 길이를 좌우하는 값.
   bgmPreset: string;
   bgmVolume: number;
   customBgmName: string; // 업로드한 파일명 (파일 자체를 서버로 보내는 기능은 아직 없음)
@@ -95,6 +96,9 @@ export function emptyProject(opts: StartOptions): ProjectState {
     formatId: "shorts_9_16",
     audio: {
       voicePreset: "news-anchor",
+      // 실측 기준값: 1.0이면 참고 영상의 2배가 넘게 길어져서, 최적 길이(20~35초)에
+      // 들어가도록 기본을 1.4로 둔다.
+      speechSpeed: 1.4,
       bgmPreset: "epic-doc",
       bgmVolume: 60,
       customBgmName: "",

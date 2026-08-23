@@ -33,7 +33,7 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
   const bgmFileRef = useRef<HTMLInputElement>(null);
 
   const videoUrl = project.videoJobId ? `/api/video/download/${project.videoJobId}` : "";
-  const timedLines = buildTimedLines(project.hookHeadline, project.cards);
+  const timedLines = buildTimedLines(project.hookHeadline, project.cards, project.audio.speechSpeed);
   const totalSeconds = totalEstimatedSeconds(timedLines);
   const format = getFormat(project.formatId);
 
@@ -69,12 +69,30 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
       const narration = cardsToNarration(project.hookHeadline, project.cards);
       const subtitles: SubtitleLine[] = timedLines.map((l) => ({ start: "00:00", end: "00:00", text: l.text }));
 
+      // 참고 영상(01_임신부_후킹결합.mp4)과 같은 카드뉴스 구성으로 만든다:
+      // 후킹 → 번호 카드들 → CTA. 미리보기에 보이는 것과 같은 장면이 그대로 영상이 된다.
+      const slides = [
+        { kind: "hook" as const, badge: `${project.groupLabel} 지원`, headline: project.hookHeadline },
+        ...project.cards.map((c) => ({ kind: "card" as const, number: c.badge, title: c.title, detail: c.detail })),
+        {
+          kind: "cta" as const,
+          badge: `${project.groupLabel} 지원`,
+          headline: "내 지원금 지금 확인하세요",
+          buttonText: "프로필 링크에서 확인",
+          footnote: `${new Date().getFullYear()}년 ${new Date().getMonth() + 1}월 기준`,
+        },
+      ].filter((s) => (s.kind === "card" ? s.title.trim() : s.headline.trim()));
+
       const { jobId } = await callPipeline<{ jobId: string }>("/api/video/render", {
         title: project.topic || project.script?.title || project.hookHeadline,
         groupLabel: project.groupLabel,
         aspectRatio: format.ratio,
         voicePreset: project.audio.voicePreset,
+        speechSpeed: project.audio.speechSpeed,
         subtitleLayout: project.subtitleLayout,
+        bannerText: `${project.groupLabel} 지원정책 안내`,
+        slideTheme: { gradientFrom: theme.gradientFrom, gradientTo: theme.gradientTo, accent: theme.accent },
+        slides,
         subtitles,
       });
 
@@ -154,6 +172,22 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
             <button disabled title="성우 미리듣기는 아직 없습니다 — 영상을 만들면 실제 음성을 확인할 수 있습니다." style={{ width: "100%", marginTop: 6 }}>
               ▶ 샘플 재생 (준비중)
             </button>
+          </div>
+
+          <div className="field-group">
+            <div className="field-label">
+              말하기 속도 <span className="pill pill-live">영상 길이에 반영됨</span>
+            </div>
+            <SliderRow
+              left="느리게" right="빠르게"
+              min={80} max={180}
+              value={Math.round(project.audio.speechSpeed * 100)}
+              onChange={(v) => updateAudio({ speechSpeed: v / 100 })}
+            />
+            <div className="item-meta">
+              현재 {project.audio.speechSpeed.toFixed(2)}배. 성우가 느리게 읽어서 기본값을 1.4로
+              두었습니다 — 낮추면 영상이 길어집니다.
+            </div>
           </div>
 
           <div className="field-group">
