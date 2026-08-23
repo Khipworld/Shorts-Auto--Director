@@ -62,7 +62,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// 한 슬라이드의 본문 HTML. 미리보기(ResultScreen의 SlidePreview)와 같은 구성:
+// 한 슬라이드의 본문 HTML. 미리보기(StudioScreen의 SlidePreview)와 같은 구성:
 // 상단 배너 / 가운데 내용 / 하단 진행바.
 function slideBody(slide: SlideSpec, bannerText: string, progressPct: number): string {
   let inner = "";
