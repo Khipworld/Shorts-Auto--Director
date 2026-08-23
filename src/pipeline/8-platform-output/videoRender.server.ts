@@ -116,6 +116,34 @@ function ensureDirs() {
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   if (!fs.existsSync(TMP_ROOT)) fs.mkdirSync(TMP_ROOT, { recursive: true });
 }
+
+// 영상마다 제목·길이 같은 정보를 mp4 옆에 작은 json으로 남긴다.
+// 그래야 나중에 목록에서 "무슨 영상인지" 알아볼 수 있다(파일명은 임의의 id라 알 수 없음).
+export interface VideoMeta {
+  title: string;
+  groupLabel: string;
+  durationSeconds: number;
+  createdAt: string;
+}
+function metaPath(id: string): string {
+  return path.join(OUTPUT_DIR, `${id}.json`);
+}
+function writeVideoMeta(id: string, meta: VideoMeta) {
+  try {
+    fs.writeFileSync(metaPath(id), JSON.stringify(meta, null, 2), { encoding: "utf8" });
+  } catch {
+    /* 정보 파일은 없어도 목록은 뜨므로 실패해도 무시 */
+  }
+}
+function readVideoMeta(id: string): VideoMeta | null {
+  try {
+    const p = metaPath(id);
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+}
 function updateJob(jobId: string, patch: Partial<RenderJob>) {
   const job = jobs.get(jobId);
   if (job) Object.assign(job, patch);
@@ -450,6 +478,12 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
 
     const destPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
     fs.copyFileSync(deliverPath, destPath);
+    writeVideoMeta(jobId, {
+      title: body.title,
+      groupLabel: body.groupLabel,
+      durationSeconds: Math.round(totalDuration * 10) / 10,
+      createdAt: new Date().toISOString(),
+    });
     updateJob(jobId, { status: "done", progress: 100, downloadUrl: `/api/video/download/${jobId}` });
     fs.rm(jobDir, { recursive: true, force: true }, () => {});
   } catch (err: any) {
@@ -503,12 +537,49 @@ export function registerVideoRenderRoutes(app: Express) {
     return res.json({ status: job.status, progress: job.progress, downloadUrl: job.downloadUrl, error: job.error, totalDurationSeconds: job.totalDurationSeconds });
   });
 
+  // 파일이 있으면 바로 내려준다. 예전에는 서버 메모리의 작업 목록에 있어야만 받을 수
+  // 있어서, 서버를 재시작하면 이미 만든 영상도 못 받는 문제가 있었다.
   app.get("/api/video/download/:jobId", (req: Request, res: ExpressResponse) => {
-    const job = jobs.get(req.params.jobId);
-    if (!job || job.status !== "done") return res.status(404).json({ error: "아직 완성되지 않았거나 존재하지 않는 작업입니다." });
-    const filePath = path.join(OUTPUT_DIR, `${req.params.jobId}.mp4`);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "렌더링 파일을 찾을 수 없습니다." });
+    const id = path.basename(req.params.jobId).replace(/\.mp4$/i, "");
+    const filePath = path.join(OUTPUT_DIR, `${id}.mp4`);
+    if (!fs.existsSync(filePath)) {
+      const job = jobs.get(id);
+      const msg = job && job.status !== "done" ? "아직 만드는 중입니다." : "영상 파일을 찾을 수 없습니다.";
+      return res.status(404).json({ error: msg });
+    }
     res.setHeader("Content-Type", "video/mp4");
+    // 브라우저에서 이어보기(탐색)가 되도록 범위 요청을 허용한다.
+    res.setHeader("Accept-Ranges", "bytes");
     return res.sendFile(filePath);
+  });
+
+  // 만들어 둔 영상 목록 — 화면에서 지난 결과를 다시 볼 수 있게 한다.
+  // (그동안은 만든 직후에만 볼 수 있었고 새로고침하면 사라졌다.)
+  app.get("/api/video/list", (_req: Request, res: ExpressResponse) => {
+    try {
+      ensureDirs();
+      const items = fs
+        .readdirSync(OUTPUT_DIR)
+        .filter((f) => f.toLowerCase().endsWith(".mp4"))
+        .map((f) => {
+          const id = f.replace(/\.mp4$/i, "");
+          const full = path.join(OUTPUT_DIR, f);
+          const stat = fs.statSync(full);
+          const meta = readVideoMeta(id);
+          return {
+            id,
+            title: meta?.title || id,
+            groupLabel: meta?.groupLabel ?? "",
+            durationSeconds: meta?.durationSeconds ?? null,
+            createdAt: meta?.createdAt ?? stat.mtime.toISOString(),
+            sizeBytes: stat.size,
+            downloadUrl: `/api/video/download/${id}`,
+          };
+        })
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)); // 최신 먼저
+      return res.json({ videos: items });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || "영상 목록을 읽지 못했습니다." });
+    }
   });
 }

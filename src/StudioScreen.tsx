@@ -535,7 +535,102 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
         </div>
       )}
 
+      {/* 지역 한정이라 뺀 항목 — 조용히 버리지 않고 무엇을 왜 뺐는지 보여준다 */}
+      {!!project.collection?.excludedRegional?.length && (
+        <div className="card">
+          <div className="card-head">
+            <h2>🗺 제외된 지역 한정 사업</h2>
+            <span className="pill pill-todo">{project.collection.excludedRegional.length}건 제외</span>
+          </div>
+          <div className="item-meta" style={{ marginBottom: 8 }}>
+            특정 지역에서만 신청할 수 있는 사업이라 전국 대상 영상에서 뺐습니다.
+          </div>
+          {project.collection.excludedRegional.map((e, i) => (
+            <div className="item" key={i}>
+              <div className="item-title">{e.title}</div>
+              <div className="item-meta">{e.reason}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <AdReferencePanel report={project.adReferences} />
+
+      <VideoLibrary reloadKey={project.videoJobId ?? ""} />
+    </div>
+  );
+}
+
+interface VideoListItem {
+  id: string;
+  title: string;
+  groupLabel: string;
+  durationSeconds: number | null;
+  createdAt: string;
+  sizeBytes: number;
+  downloadUrl: string;
+}
+
+// 만들어 둔 영상 목록.
+// 그동안은 영상을 만든 직후에만 볼 수 있었고 새로고침하면 사라졌다 — 지난 결과를
+// 화면에서 다시 확인할 수 있어야 한다는 요청에 따라 추가.
+function VideoLibrary({ reloadKey }: { reloadKey: string }) {
+  const [videos, setVideos] = useState<VideoListItem[]>([]);
+  const [error, setError] = useState("");
+  const [playing, setPlaying] = useState<string>("");
+
+  useEffect(() => {
+    getJson<{ videos: VideoListItem[] }>("/api/video/list")
+      .then((d) => setVideos(d.videos))
+      .catch((e) => setError(e.message));
+  }, [reloadKey]);
+
+  function fmtDate(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>🎬 만든 영상</h2>
+        <span className="pill pill-live">{videos.length}개</span>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+      {!error && !videos.length && <div className="empty">아직 만든 영상이 없습니다.</div>}
+
+      {videos.map((v) => (
+        <div className="item" key={v.id}>
+          <div className="item-title">
+            {v.groupLabel && <span className="badge unchanged">{v.groupLabel}</span>}
+            {v.title}
+          </div>
+          <div className="item-meta">
+            {fmtDate(v.createdAt)}
+            {v.durationSeconds ? ` · ${v.durationSeconds}초` : ""}
+            {` · ${Math.round(v.sizeBytes / 1024 / 1024 * 10) / 10}MB`}
+          </div>
+          <div className="chips" style={{ marginTop: 6 }}>
+            <button onClick={() => setPlaying(playing === v.id ? "" : v.id)} style={{ fontSize: 12, padding: "4px 10px" }}>
+              {playing === v.id ? "닫기" : "▶ 재생"}
+            </button>
+            <a href={v.downloadUrl} download={`${v.title || v.id}.mp4`}>
+              <button style={{ fontSize: 12, padding: "4px 10px" }}>⬇ 다운로드</button>
+            </a>
+          </div>
+          {playing === v.id && (
+            <video
+              src={v.downloadUrl}
+              controls
+              autoPlay
+              style={{ width: "100%", maxWidth: 260, display: "block", marginTop: 10, borderRadius: 8, background: "#000" }}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
