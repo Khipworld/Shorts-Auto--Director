@@ -11,6 +11,7 @@ interface Props {
   project: ProjectState;
   updateProject: (updater: (prev: ProjectState) => ProjectState) => void;
   onStartOver: () => void;
+  onRegenerate: () => void; // 지금 주제로 자료수집부터 다시 실행
 }
 
 // 쇼츠 스튜디오 — design/main-screen-mockup.html에서 확정한 화면 구성을 그대로 옮긴 것.
@@ -23,7 +24,7 @@ interface Props {
 //
 // 아직 백엔드가 없는 항목(BGM/SFX/자막 위치)은 화면에서 지우지 않고 "준비중" 배지로
 // 명확히 표시한다 — 실제로 동작하는 것과 아닌 것을 구분해서 보여주기 위함.
-export default function ResultScreen({ project, updateProject, onStartOver }: Props) {
+export default function ResultScreen({ project, updateProject, onStartOver, onRegenerate }: Props) {
   const theme = getCardTheme(project.groupId);
   const [selected, setSelected] = useState(0); // 0 = 후킹, 1.. = cards[i-1]
   const [rendering, setRendering] = useState(false);
@@ -108,12 +109,36 @@ export default function ResultScreen({ project, updateProject, onStartOver }: Pr
     <div>
       <div className="top-nav">
         <div>
-          <h1>{project.topic || `${project.groupLabel} 지원정책 안내`}</h1>
+          <h1>{project.groupLabel} 쇼츠 스튜디오</h1>
           <div className="sub" style={{ marginBottom: 0 }}>
-            {project.groupLabel} · 슬라이드를 고르고 문구·음성·자막 위치를 조정한 뒤 영상을 만드세요.
+            슬라이드를 고르고 문구·음성·자막 위치를 조정한 뒤 영상을 만드세요.
           </div>
         </div>
         <button className="ghost" onClick={onStartOver}>← 새로 시작</button>
+      </div>
+
+      {/* 주제 입력란 — 목업(design/main-screen-mockup.html) 맨 위에 있던 칸.
+          여기서 고친 주제는 영상 제목에 바로 반영되고, "자료 다시 찾기"를 누르면
+          그 주제로 자료수집부터 다시 돌린다. */}
+      <div className="card topic-bar">
+        <div className="field-label" style={{ marginBottom: 8 }}>
+          📝 주제 <span className="pill pill-live">영상 제목에 반영됨</span>
+        </div>
+        <div className="topic-row">
+          <input
+            type="text"
+            value={project.topic}
+            placeholder={`예: 2026년 ${project.groupLabel} 지원 정책 총정리`}
+            onChange={(e) => update({ topic: e.target.value })}
+          />
+          <button onClick={() => onRegenerate()} disabled={rendering}>
+            이 주제로 자료 다시 찾기
+          </button>
+        </div>
+        <div className="item-meta" style={{ marginTop: 6 }}>
+          주제만 고치면 영상 제목이 바뀝니다. 카드 내용까지 새 주제에 맞게 바꾸려면
+          "자료 다시 찾기"를 누르세요 — 자료수집부터 다시 돌아가며 지금 편집한 내용은 사라집니다.
+        </div>
       </div>
 
       <div className="studio-grid">

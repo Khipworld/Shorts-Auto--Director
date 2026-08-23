@@ -155,7 +155,14 @@ export default function App() {
         <GeneratingScreen project={project} updateProject={updateProject} onDone={() => setView("result")} onCancel={() => setView("start")} />
       )}
       {view === "result" && project && (
-        <ResultScreen project={project} updateProject={updateProject} onStartOver={() => setView("start")} />
+        <ResultScreen
+          project={project}
+          updateProject={updateProject}
+          onStartOver={() => setView("start")}
+          // 스튜디오에서 주제를 고치고 "자료 다시 찾기"를 누른 경우. GeneratingScreen이
+          // 새로 만들어지면서 지금 project.topic으로 파이프라인을 처음부터 다시 돈다.
+          onRegenerate={() => setView("generating")}
+        />
       )}
     </>
   );

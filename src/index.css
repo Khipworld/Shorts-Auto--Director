@@ -97,13 +97,24 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   display: grid;
   grid-template-columns: minmax(220px, 1fr) 260px minmax(220px, 1fr);
   gap: 16px;
-  align-items: start;
+  /* 좌·중·우 세 박스의 높이를 맞춘다(목업에서 요청된 사항). 내용 길이가 달라도
+     박스 아래끝이 나란히 떨어지도록 stretch. */
+  align-items: stretch;
   margin-bottom: 16px;
 }
 @media (max-width: 860px) {
   .studio-grid { grid-template-columns: 1fr; justify-items: center; }
   .studio-grid > * { width: 100%; max-width: 420px; }
 }
+/* 주제 입력란 — 목업에서 3단 패널 위에 가로로 길게 놓였던 칸 */
+.topic-bar { padding: 14px 16px; }
+.topic-row { display: flex; gap: 8px; align-items: center; }
+.topic-row input[type=text] { flex: 1; min-width: 0; font-size: 14px; padding: 9px 11px; }
+.topic-row button { white-space: nowrap; }
+@media (max-width: 560px) {
+  .topic-row { flex-direction: column; align-items: stretch; }
+}
+
 .studio-center { display: flex; flex-direction: column; }
 .panel { padding: 16px; margin-bottom: 0; }
 .panel select, .panel > .field-group > button { width: 100%; }
