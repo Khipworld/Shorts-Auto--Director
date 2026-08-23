@@ -1,5 +1,6 @@
 import { useState } from "react";
 import StudioScreen from "./StudioScreen";
+import WorkLogScreen from "./WorkLogScreen";
 import type {
   CollectionResult,
   VerificationReport,
@@ -194,16 +195,22 @@ function demoProject(): ProjectState {
 // 대상 그룹·주제는 주제 입력 하나로, 배포 플랫폼은 메인 화면의 배포 규격에 합칠 것.
 // 자료수집~카드뉴스 구성은 내부 작업이라 화면에 단계별로 표시하지 않는다.
 export default function App() {
-  const isDemo = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const isDemo = params.has("demo");
   const [project, setProject] = useState<ProjectState>(isDemo ? demoProject() : blankProject());
+  // 작업 기록은 스튜디오와 별개 화면. 주소에 ?worklog 를 붙이거나 스튜디오에서 눌러 들어간다.
+  const [showWorkLog, setShowWorkLog] = useState(params.has("worklog"));
 
   const updateProject = (updater: (prev: ProjectState) => ProjectState) => setProject((prev) => updater(prev));
+
+  if (showWorkLog) return <WorkLogScreen onBack={() => setShowWorkLog(false)} />;
 
   return (
     <StudioScreen
       project={project}
       updateProject={updateProject}
       onReset={() => setProject(blankProject())}
+      onOpenWorkLog={() => setShowWorkLog(true)}
     />
   );
 }

@@ -13,6 +13,7 @@ interface Props {
   project: ProjectState;
   updateProject: (updater: (prev: ProjectState) => ProjectState) => void;
   onReset: () => void;
+  onOpenWorkLog: () => void;
 }
 
 // 쇼츠 스튜디오 — 이 프로그램의 유일한 화면.
@@ -28,7 +29,7 @@ interface Props {
 // 구조라 한 줄이 "제목 + 핵심 수치" 두 조각이라, 한 줄 안에 두 입력칸을 둔다.
 //
 // 아직 백엔드가 없는 항목(BGM/SFX)은 화면에서 지우지 않고 "준비중" 배지로 명확히 표시한다.
-export default function StudioScreen({ project, updateProject, onReset }: Props) {
+export default function StudioScreen({ project, updateProject, onReset, onOpenWorkLog }: Props) {
   const theme = getCardTheme(project.groupId);
   const [selected, setSelected] = useState(0); // 0 = 후킹, 1.. = cards[i-1]
   const [rendering, setRendering] = useState(false);
@@ -170,7 +171,10 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
             주제를 입력하면 자료를 찾아 카드뉴스 쇼츠를 만들어드립니다. 만든 뒤 여기서 바로 고칠 수 있어요.
           </div>
         </div>
-        {hasContent && <button className="ghost" onClick={onReset}>← 처음부터</button>}
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <button className="ghost" onClick={onOpenWorkLog}>📋 작업 기록</button>
+          {hasContent && <button className="ghost" onClick={onReset}>← 처음부터</button>}
+        </div>
       </div>
 
       {/* 주제 입력 — 이 화면의 시작점. 대상 그룹은 주제에서 자동으로 알아낸다. */}

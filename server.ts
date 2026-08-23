@@ -3,6 +3,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { registerApiKeyRoutes } from "./apiKeys.server";
+import { registerWorkLogRoutes } from "./worklog.server";
 import { findVerifiedPhoto } from "./src/pipeline/7-subtitles-media/imageSearch.server";
 import { splitNarrationIntoSubtitles, classifyAnthropicError } from "./src/pipeline/7-subtitles-media/subtitleSplit.server";
 import { collectSourcesForGroup } from "./src/pipeline/1-data-collection/collectSources.server";
@@ -27,6 +28,9 @@ app.use(express.static(path.join(process.cwd(), "public")));
 
 // 설정 콘솔: 외부 API 키 등록/테스트 (암호화 저장)
 registerApiKeyRoutes(app);
+
+// 작업 기록 — 사용자 요청과 대응 이력 (K-Street에서 기능만 가져와 새로 만듦)
+registerWorkLogRoutes(app);
 
 // 실제 mp4 렌더링 (TTS + ffmpeg), 비동기 작업 큐
 registerVideoRenderRoutes(app);

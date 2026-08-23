@@ -204,3 +204,83 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
   font-size: 12.5px; border-radius: 6px; padding: 9px 12px; margin-bottom: 10px;
 }
+
+/* ───────── 작업 감사 & 진행 대시보드 (K-Street WorkLogDashboard 구성을 옮김) ───────── */
+/* 원본이 어두운 테마라 그 느낌을 유지한다 — 표가 많아 대비가 높은 편이 읽기 쉽다. */
+.wl { background: #0a0f1a; color: #cbd5e1; margin: -24px -20px -60px; padding: 20px; min-height: 100vh; }
+.wl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.wl-title { font-size: 17px; color: #f1f5f9; margin: 0 0 4px; }
+.wl-sub { font-size: 11.5px; color: #64748b; }
+.wl-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.wl-btn { font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;
+  background: #1e293b; border: 1px solid #334155; color: #cbd5e1; cursor: pointer; }
+.wl-btn:hover { background: #334155; }
+.wl-btn.danger { background: #9f1239; border-color: #be123c; color: #fff; }
+.wl-full { width: 100%; margin-top: 8px; }
+
+.wl-panel { background: rgba(2, 6, 23, 0.5); border: 1px solid #0f172a; border-radius: 12px; padding: 14px; }
+.wl-nopad { padding: 0; overflow: hidden; }
+.wl-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  font-size: 11px; font-weight: 700; color: #cbd5e1; padding: 10px 14px; border-bottom: 1px solid #0f172a; }
+.wl-panel > .wl-panel-head:first-child { padding: 0 0 10px; }
+.wl-count { font-size: 10px; font-family: ui-monospace, Consolas, monospace; color: #64748b;
+  background: #0f172a; padding: 2px 8px; border-radius: 100px; white-space: nowrap; }
+.wl-error { color: #fca5a5; font-size: 12.5px; margin-bottom: 12px; }
+
+.wl-confirm { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  background: rgba(76, 5, 25, 0.4); border: 1px solid rgba(159, 18, 57, 0.5); border-radius: 8px;
+  padding: 10px 14px; font-size: 11.5px; color: #fecdd3; margin-bottom: 12px; }
+.wl-confirm-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.wl-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; margin-bottom: 14px; align-items: start; }
+@media (max-width: 900px) { .wl-grid { grid-template-columns: 1fr; } }
+
+/* 달력 */
+.wl-cal-nav { display: flex; align-items: center; gap: 4px; }
+.wl-icon { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 15px; padding: 0 5px; }
+.wl-icon:hover { color: #e2e8f0; }
+.wl-cal-month { font-size: 10.5px; font-family: ui-monospace, Consolas, monospace; color: #94a3b8; width: 66px; text-align: center; }
+.wl-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center;
+  font-size: 9.5px; color: #475569; font-weight: 700; margin-bottom: 4px; }
+.wl-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.wl-day { position: relative; aspect-ratio: 1; border-radius: 6px; border: none; background: none;
+  color: #94a3b8; font-size: 10.5px; font-family: ui-monospace, Consolas, monospace; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; }
+.wl-day:hover { background: #1e293b; }
+.wl-day.start { background: rgba(76, 5, 25, 0.6); color: #fda4af; border: 1px solid rgba(190, 18, 60, 0.5); }
+.wl-day.selected { background: #059669; color: #fff; }
+.wl-dot { position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: #10b981; }
+.wl-legend { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 9.5px; color: #fb7185; }
+.wl-dot-start { width: 6px; height: 6px; border-radius: 50%; background: #f43f5e; display: inline-block; }
+
+/* 표 공통 */
+.wl-scroll { overflow: auto; max-height: 46vh; }
+.wl-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.wl-table th { position: sticky; top: 0; z-index: 1; background: #0f172a; color: #94a3b8;
+  text-align: left; font-weight: 700; padding: 8px 10px; border-bottom: 1px solid #1e293b; border-right: 1px solid #1e293b; }
+.wl-table th:last-child { border-right: none; }
+.wl-th-note { font-weight: 400; font-size: 9px; color: #475569; margin-top: 2px; }
+.wl-table td { padding: 8px 10px; border-bottom: 1px solid #0f172a; border-right: 1px solid #0f172a;
+  vertical-align: top; color: #cbd5e1; }
+.wl-table td:last-child { border-right: none; }
+.wl-table tbody tr:hover { background: rgba(15, 23, 42, 0.4); }
+.wl-pre { white-space: pre-wrap; }
+.wl-mono { font-family: ui-monospace, Consolas, monospace; color: #94a3b8; }
+.wl-date { font-family: ui-monospace, Consolas, monospace; color: #34d399; white-space: nowrap; }
+.wl-time { color: #475569; }
+.wl-empty { text-align: center; color: #475569; padding: 28px 0; }
+.wl-dash { color: #475569; }
+.wl-file { display: inline-block; font-family: ui-monospace, Consolas, monospace; font-size: 10px;
+  background: #020617; border: 1px solid #1e293b; color: #94a3b8; padding: 1px 6px; border-radius: 4px; margin: 0 3px 3px 0; }
+.wl-commit { color: #818cf8; }
+.wl-uncommit { color: #fbbf24; }
+.wl-impl-row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 5px; }
+.wl-impl-ico { color: #64748b; flex-shrink: 0; font-size: 10px; }
+.wl-del { background: none; border: none; color: #475569; cursor: pointer; padding: 2px; font-size: 12px; }
+.wl-del:hover { color: #fb7185; }
+
+.wl-search { display: flex; align-items: center; gap: 8px; background: rgba(2, 6, 23, 0.5);
+  border: 1px solid #0f172a; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+.wl-search input { flex: 1; background: none; border: none; color: #e2e8f0; font-size: 12px; padding: 0; }
+.wl-search input:focus { outline: none; }
