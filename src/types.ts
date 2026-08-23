@@ -5,6 +5,7 @@ export type { ProsConsReport, ItemProsCons } from "./pipeline/2-pros-cons/analyz
 export type { VerificationReport, VerificationResult } from "./pipeline/3-verification/verifySources.server";
 export type { ConstraintReport, ConstraintCheckItem } from "./pipeline/4-constraints/checkConstraints.server";
 export type { HookSeoReport, PlatformHookSeo } from "./pipeline/5-hook-seo/generateHookSeo.server";
+export type { AdReferenceReport, AdReference, AdPattern } from "./pipeline/5-hook-seo/adReferences.server";
 export type { PlatformSpec } from "./pipeline/5-hook-seo/platformSpecs";
 export type { ScriptResult } from "./pipeline/6-script/generateScript.server";
 export type { SubtitleLine } from "./pipeline/7-subtitles-media/subtitleSplit.server";

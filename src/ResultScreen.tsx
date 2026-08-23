@@ -368,6 +368,84 @@ export default function ResultScreen({ project, updateProject, onStartOver, onRe
           <div className="chips">{project.hashtags.map((t) => <span className="chip" key={t}>{t}</span>)}</div>
         </div>
       )}
+
+      <AdReferencePanel report={project.adReferences} />
+    </div>
+  );
+}
+
+// 후킹 문구가 무엇을 근거로 만들어졌는지 사용자가 직접 검토하는 패널.
+// 요구서의 "검증 투명성 — 형식적 통과 표시 금지" 원칙을 이 단계에도 적용한 것:
+// 사례를 못 찾았으면 못 찾았다고 그대로 보여준다.
+function AdReferencePanel({ report }: { report?: ProjectState["adReferences"] }) {
+  const [open, setOpen] = useState(false);
+
+  if (!report) {
+    return (
+      <div className="card">
+        <div className="card-head">
+          <h2>📺 참고한 광고 사례</h2>
+          <span className="pill pill-todo">사례 없이 생성됨</span>
+        </div>
+        <div className="item-meta">
+          이번 후킹 문구는 실제 광고 사례를 참고하지 않고 만들어졌습니다(사례 수집을 건너뛰었거나 실패).
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>📺 참고한 광고 사례</h2>
+        <span className={`pill ${report.references.length ? "pill-live" : "pill-todo"}`}>
+          사례 {report.references.length}건 · 패턴 {report.patterns.length}개
+        </span>
+      </div>
+
+      {report.patterns.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          {report.patterns.map((p, i) => (
+            <div className="item" key={i}>
+              <div className="item-title">{p.pattern}</div>
+              <div style={{ fontSize: 13 }}>{p.applyToTopic}</div>
+              <div className="item-meta">근거 사례: {p.evidence.join(", ")}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {report.limitations.length > 0 && (
+        <div className="notice">
+          {report.limitations.map((l, i) => <div key={i}>· {l}</div>)}
+        </div>
+      )}
+
+      {report.references.length > 0 && (
+        <>
+          <button className="ghost" style={{ paddingLeft: 0 }} onClick={() => setOpen((v) => !v)}>
+            {open ? "▾ 사례 원문 접기" : `▸ 사례 ${report.references.length}건 자세히 보기`}
+          </button>
+          {open && report.references.map((r, i) => (
+            <div className="item" key={i}>
+              <div className="item-title">
+                <span className="badge unchanged">{r.platform || "플랫폼 미상"}</span>
+                <a href={r.sourceUrl} target="_blank" rel="noreferrer">{r.title}</a>
+              </div>
+              {r.hookText && <div style={{ fontSize: 13 }}><b>후킹:</b> {r.hookText}</div>}
+              {r.structure && <div style={{ fontSize: 13 }}><b>구성:</b> {r.structure}</div>}
+              {r.whyItWorked && <div style={{ fontSize: 13 }}><b>효과 이유:</b> {r.whyItWorked}</div>}
+              <div className="item-meta">{r.metrics ? `수치: ${r.metrics}` : "수치 확인 안 됨"}</div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {!report.references.length && (
+        <div className="item-meta">
+          이 주제로 참고할 만한 광고 사례를 찾지 못했습니다. 후킹 문구는 사례 근거 없이 만들어졌습니다.
+        </div>
+      )}
     </div>
   );
 }

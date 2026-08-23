@@ -11,6 +11,7 @@ import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.serv
 import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
 import { checkConstraints } from "./src/pipeline/4-constraints/checkConstraints.server";
 import { generateHookSeo } from "./src/pipeline/5-hook-seo/generateHookSeo.server";
+import { collectAdReferences } from "./src/pipeline/5-hook-seo/adReferences.server";
 import { generateScript } from "./src/pipeline/6-script/generateScript.server";
 import { packageOutput } from "./src/pipeline/8-platform-output/packageOutput.server";
 import { registerVideoRenderRoutes } from "./src/pipeline/8-platform-output/videoRender.server";
@@ -100,14 +101,33 @@ app.post("/api/pipeline/4/check", async (req, res) => {
   }
 });
 
+// [5-사전] 참고 광고 사례 수집·분석 — 실제로 성과가 났던 숏폼 광고를 찾아 구조를 분석한다.
+// 후킹 문구를 만들기 전에 근거로 삼기 위한 단계(사용자 요구: "유튜브·SNS 광고 사례를
+// 수집하여 검토하는 프로세스").
+app.post("/api/pipeline/5/ad-references", async (req, res) => {
+  try {
+    const { topic, platformId } = req.body ?? {};
+    if (!topic || typeof topic !== "string" || !topic.trim()) {
+      return res.status(400).json({ error: "광고 사례를 찾으려면 topic 값이 필요합니다." });
+    }
+    const result = await collectAdReferences(topic, typeof platformId === "string" ? platformId : "youtube_shorts");
+    return res.json(result);
+  } catch (error: any) {
+    console.error("Ad reference collection error:", error);
+    const quota = classifyAnthropicError(String(error?.message || error));
+    return res.status(500).json({ error: error?.message || "광고 사례 수집에 실패했습니다.", isQuotaError: quota.isQuotaError, billingUrl: quota.billingUrl });
+  }
+});
+
 // [5] 플랫폼별 후킹·SEO 분석
 app.post("/api/pipeline/5/hook-seo", async (req, res) => {
   try {
-    const { groupId, platforms } = req.body ?? {};
+    const { groupId, platforms, adReferences } = req.body ?? {};
     if (!groupId || typeof groupId !== "string") {
       return res.status(400).json({ error: "groupId 값이 필요합니다." });
     }
-    const result = await generateHookSeo(groupId, Array.isArray(platforms) ? platforms : undefined);
+    // adReferences는 선택값 — 없으면 사례 참고 없이 기존 방식대로 생성한다.
+    const result = await generateHookSeo(groupId, Array.isArray(platforms) ? platforms : undefined, adReferences);
     return res.json(result);
   } catch (error: any) {
     console.error("Hook/SEO generation error:", error);

@@ -7,6 +7,7 @@ import type {
   VerificationReport,
   ConstraintReport,
   HookSeoReport,
+  AdReferenceReport,
   ScriptResult,
   SubtitleLine,
 } from "./types";
@@ -63,6 +64,7 @@ export interface ProjectState {
   collection?: CollectionResult;
   verification?: VerificationReport;
   constraints?: ConstraintReport;
+  adReferences?: AdReferenceReport; // 후킹 문구의 근거가 된 실제 광고 사례
   hookSeo?: HookSeoReport;
   hashtags: string[];
 
@@ -132,6 +134,50 @@ function demoProject(): ProjectState {
       { badge: "04", title: "신청은 복지로에서", detail: "각 기관 홈페이지에서 조건 확인 필수" },
     ],
     hashtags: ["#청년지원금", "#청년미래적금", "#2026정책"],
+    // 아래는 실제로 /api/pipeline/5/ad-references를 돌려서 나온 결과를 줄여 담은 것
+    // (화면 확인용 예시일 뿐, 이 주제와는 무관한 다른 주제의 수집 결과임)
+    adReferences: {
+      topic: "무선 청소기 신제품 숏폼 광고",
+      platformId: "youtube_shorts",
+      platformLabel: "유튜브 쇼츠",
+      collectedAt: new Date().toISOString(),
+      references: [
+        {
+          title: "삼성전자 비스포크 제트 AI 캠페인 'The JET Walk'",
+          platform: "유튜브",
+          sourceUrl: "https://www.youtube.com/",
+          hookText: "금빛 런웨이에 모델들이 무표정하게 걸어 나오며 시작",
+          structure: "패션쇼처럼 시작해 광고임을 숨김 → 모델 손의 청소기가 뒤늦게 드러남 → 반전",
+          whyItWorked: "청소기 광고라는 예상을 깨뜨려 초반 이탈을 막음",
+          metrics: "공개 5일 만에 조회수 100만 돌파",
+        },
+        {
+          title: "LG전자 코드제로 A9S 오브제컬렉션 – 스파이 영화 콘셉트",
+          platform: "유튜브",
+          sourceUrl: "https://www.youtube.com/",
+          hookText: '"마무리 했나?" — 첩보영화 대사로 시작',
+          structure: "먼지 흡입 → 물걸레 → 자동 먼지통 비움 순으로 기능을 미션처럼 배치",
+          whyItWorked: "장르적 완성도로 광고 자체를 볼거리로 만듦",
+          metrics: "공개 약 3주 만에 조회수 1,000만 돌파",
+        },
+      ],
+      patterns: [
+        {
+          pattern: "광고임을 바로 드러내지 않고 이질적인 장르로 시작해 초반 1~2초에 시선을 잡는다",
+          evidence: ["삼성전자 비스포크 제트 AI 캠페인 'The JET Walk'", "LG전자 코드제로 A9S 오브제컬렉션 – 스파이 영화 콘셉트"],
+          applyToTopic: "청소 장면 대신 상황극처럼 시작해 반전으로 이탈을 막는다",
+        },
+        {
+          pattern: "핵심 스펙을 하나의 스토리 안에서 단계별 시퀀스로 시연한다",
+          evidence: ["LG전자 코드제로 A9S 오브제컬렉션 – 스파이 영화 콘셉트"],
+          applyToTopic: "기능들을 짧은 스토리의 '미션 단계'처럼 순차적으로 보여준다",
+        },
+      ],
+      limitations: [
+        "참고 사례를 2건만 찾았습니다(3건 이상 권장). 후킹 문구는 사례 근거가 약한 상태로 만들어집니다.",
+        "확인된 2건 모두 쇼츠 전용이 아닌 가로형 브랜드 필름이 유튜브에 공개되어 확산된 사례임",
+      ],
+    },
   };
 }
 
