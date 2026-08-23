@@ -127,6 +127,7 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
         sfxTrack: project.audio.sfxPreset,
         sfxVolume: project.audio.sfxVolume,
         subtitleLayout: project.subtitleLayout,
+        withIntro: project.withIntro,
         bannerText: `${project.groupLabel} 지원정책 안내`,
         slideTheme: { gradientFrom: theme.gradientFrom, gradientTo: theme.gradientTo, accent: theme.accent },
         slides,
@@ -394,6 +395,21 @@ export default function StudioScreen({ project, updateProject, onReset }: Props)
                 {project.formatId === f.id && <span className="pill pill-live">선택됨</span>}
               </div>
             ))}
+          </div>
+
+          <div className="field-group">
+            <div className="field-label">도입부 연출 <span className="pill pill-live">영상에 반영됨</span></div>
+            <label className="item-meta" style={{ display: "block" }}>
+              <input
+                type="checkbox"
+                checked={project.withIntro}
+                onChange={(e) => update({ withIntro: e.target.checked })}
+              />{" "}
+              맨 앞에 3초 도입부 붙이기
+            </label>
+            <div className="item-meta">
+              금색 티켓이 빛을 끌며 날아와 자리잡는 연출입니다. 영상이 3초 길어집니다.
+            </div>
           </div>
 
           <div className="field-group">

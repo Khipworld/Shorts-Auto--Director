@@ -57,6 +57,7 @@ export interface ProjectState {
   formatId: string;
   audio: AudioSettings;
   subtitleLayout: SubtitleLayout;
+  withIntro: boolean; // 맨 앞에 동적 도입부(금색 티켓이 날아오는 3초)를 붙일지
 
   collection?: CollectionResult;
   verification?: VerificationReport;
@@ -109,6 +110,7 @@ export function emptyProject(opts: StartOptions): ProjectState {
       sfxVolume: 50,
     },
     subtitleLayout: { vertical: 58, horizontal: 50, margin: 8 },
+    withIntro: true, // 참고 영상(임신부편)에 있던 연출이라 기본으로 켜둔다
 
     hashtags: [],
     hookHeadline: "",
