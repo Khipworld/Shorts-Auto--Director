@@ -685,6 +685,42 @@ function runFfmpeg(args: string[], onProgress: (fraction: number) => void): Prom
 }
 
 export function registerVideoRenderRoutes(app: Express) {
+  // 성우 미리듣기 — 영상을 다 만들지 않고도 목소리를 바로 확인한다.
+  // (그동안 화면의 "샘플 재생"이 눌리지 않는 상태였다.)
+  app.post("/api/tts/sample", async (req: Request, res: ExpressResponse) => {
+    try {
+      const { voicePreset, text, speed } = req.body ?? {};
+      const sampleText = typeof text === "string" && text.trim()
+        ? text.trim().slice(0, 80)
+        : "임신하면 놓치기 쉬운 돈, 최대 220만원";
+      const preset = typeof voicePreset === "string" && voicePreset ? voicePreset : "news-anchor";
+      const spd = clampNumber(speed, 0.8, 1.8, 1.2);
+
+      const { audioPath } = await synthesizeLine(sampleText, preset, spd);
+      // TTS 서비스가 만든 wav를 그대로 내려준다(임시 파일이라 복사해 둔다).
+      ensureDirs();
+      const destName = `sample_${preset}_${Date.now()}.wav`;
+      const dest = path.join(OUTPUT_DIR, "samples", destName);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(audioPath, dest);
+      return res.json({ url: `/api/tts/sample/${destName}` });
+    } catch (error: any) {
+      const msg = String(error?.message || error);
+      const hint = msg.includes("5005")
+        ? "TTS 서비스(포트 5005)가 실행 중인지 확인하세요."
+        : "";
+      return res.status(500).json({ error: `${msg} ${hint}`.trim() });
+    }
+  });
+
+  app.get("/api/tts/sample/:name", (req: Request, res: ExpressResponse) => {
+    const name = path.basename(req.params.name);
+    const p = path.join(OUTPUT_DIR, "samples", name);
+    if (!fs.existsSync(p)) return res.status(404).json({ error: "샘플을 찾을 수 없습니다." });
+    res.setHeader("Content-Type", "audio/wav");
+    return res.sendFile(p);
+  });
+
   ensureDirs();
 
   app.post("/api/video/render", (req: Request, res: ExpressResponse) => {

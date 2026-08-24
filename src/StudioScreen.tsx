@@ -39,6 +39,11 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   const [error, setError] = useState("");
   const bgmFileRef = useRef<HTMLInputElement>(null);
 
+  // 성우 미리듣기 — 영상을 다 만들지 않고 목소리만 먼저 확인한다.
+  const [samplePlaying, setSamplePlaying] = useState(false);
+  const [sampleUrl, setSampleUrl] = useState("");
+  const [sampleError, setSampleError] = useState("");
+
   const [groups, setGroups] = useState<LifecycleGroup[]>([]);
   const [manualGroupId, setManualGroupId] = useState(""); // 주제로 그룹을 못 알아냈을 때만 씀
   const pipeline = usePipeline(project, updateProject);
@@ -53,6 +58,26 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   const resolvedGroupId = guess?.groupId || manualGroupId;
   const resolvedGroupLabel = guess?.groupLabel || groups.find((g) => g.id === manualGroupId)?.label || "";
   const hasContent = project.cards.length > 0 || project.hookHeadline.trim().length > 0;
+
+  async function playVoiceSample() {
+    setSamplePlaying(true);
+    setSampleError("");
+    setSampleUrl("");
+    try {
+      // 지금 만들고 있는 후킹 문구가 있으면 그걸로, 없으면 기본 문장으로 읽는다.
+      const text = project.hookHeadline.trim() || undefined;
+      const { url } = await callPipeline<{ url: string }>("/api/tts/sample", {
+        voicePreset: project.audio.voicePreset,
+        speed: project.audio.speechSpeed,
+        text,
+      });
+      setSampleUrl(url);
+    } catch (e: any) {
+      setSampleError(e?.message || "샘플을 만들지 못했습니다.");
+    } finally {
+      setSamplePlaying(false);
+    }
+  }
 
   async function startPipeline(skipWarning = false) {
     if (!resolvedGroupId) return;
@@ -280,9 +305,18 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
             <select value={project.audio.voicePreset} onChange={(e) => updateAudio({ voicePreset: e.target.value })}>
               {VOICE_PRESETS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
-            <button disabled title="성우 미리듣기는 아직 없습니다 — 영상을 만들면 실제 음성을 확인할 수 있습니다." style={{ width: "100%", marginTop: 6 }}>
-              ▶ 샘플 재생 (준비중)
+            <button
+              onClick={playVoiceSample}
+              disabled={samplePlaying}
+              style={{ width: "100%", marginTop: 6 }}
+              title="지금 고른 성우로 한 문장을 읽어봅니다"
+            >
+              {samplePlaying ? "…만드는 중" : "▶ 샘플 재생"}
             </button>
+            {sampleError && <div className="error" style={{ marginTop: 6 }}>{sampleError}</div>}
+            {sampleUrl && (
+              <audio key={sampleUrl} src={sampleUrl} controls autoPlay style={{ width: "100%", marginTop: 8 }} />
+            )}
           </div>
 
           <div className="field-group">
