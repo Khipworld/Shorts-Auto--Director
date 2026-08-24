@@ -15,6 +15,7 @@ import ffmpegPath from "ffmpeg-static";
 import { pickBackgroundImageDataUrl } from "./backgroundImage.server";
 import { renderSlidesToPng, SlideSpec, SlideTheme, SlideLayout } from "./slideRenderer.server";
 import { renderIntroClip, prependIntro } from "./introAnimator.server";
+import { renderShortsVideo, isRemotionAvailable } from "./remotionRender.server";
 import type { SubtitleLine } from "../7-subtitles-media/subtitleSplit.server";
 
 const OUTPUT_DIR = path.join(process.cwd(), "rendered-output");
@@ -65,6 +66,11 @@ export interface RenderVideoRequest {
   bgmVolume?: number;
   sfxTrack?: string;
   sfxVolume?: number;
+
+  // 브랜드 — 채널명·로고·강조색 (src/brand.ts에서 옴)
+  channelName?: string;
+  logoSrc?: string;
+  highlightColor?: string;
 
   // 맨 앞에 붙일 동적 도입부(금색 티켓이 날아오는 3초). 참고 영상 01_임신부편에만 있던
   // 연출을 프로그램에서 자동으로 만들어 붙인다. false거나 미지정이면 안 붙임.
@@ -272,6 +278,153 @@ function narrationForSlide(slide: SlideSpec, readDetail: boolean): string {
   return slide.headline;
 }
 
+/**
+ * 나레이션 + BGM + 효과음을 하나의 오디오 파일로 만든다.
+ *
+ * 예전에는 영상 필터그래프 안에 섞여 있었는데, Remotion이 화면을 맡게 되면서
+ * 소리만 따로 만들어 나중에 합치는 구조로 분리했다. 믹싱 규칙(BGM 반복·길이맞춤·
+ * 끝 페이드아웃, 효과음은 장면 전환 0.15초 전)은 검증된 것을 그대로 옮겼다.
+ */
+async function buildAudioTrack(
+  timedLines: TimedLine[],
+  body: RenderVideoRequest,
+  totalDuration: number,
+  offsetSeconds: number,
+  outPath: string,
+  ffBin: string
+): Promise<void> {
+  const args: string[] = ["-y"];
+  const filters: string[] = [];
+  const mixLabels: string[] = [];
+  let idx = 0;
+
+  timedLines.forEach((line, i) => {
+    args.push("-i", line.wavPath);
+    const ms = Math.max(0, Math.round((line.start + offsetSeconds) * 1000));
+    filters.push(`[${idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${ms}:all=1[al${i}]`);
+    mixLabels.push(`al${i}`);
+    idx++;
+  });
+
+  const bgmPath = resolveBgmPath(body.bgmTrack);
+  if (bgmPath) {
+    args.push("-stream_loop", "-1", "-i", bgmPath);
+    const vol = clampNumber(body.bgmVolume, 0, 100, 35) / 100;
+    const fadeStart = Math.max(0, totalDuration - 1.2);
+    filters.push(
+      `[${idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:${totalDuration.toFixed(3)},asetpts=N/SR/TB,volume=${vol.toFixed(3)},afade=t=out:st=${fadeStart.toFixed(3)}:d=1.2[abgm]`
+    );
+    mixLabels.push("abgm");
+    idx++;
+  }
+
+  const sfxPath = resolveSfxPath(body.sfxTrack);
+  if (sfxPath && timedLines.length > 1) {
+    const sfxVol = clampNumber(body.sfxVolume, 0, 100, 45) / 100;
+    timedLines.slice(1).forEach((line, i) => {
+      args.push("-i", sfxPath);
+      const ms = Math.max(0, Math.round((line.start + offsetSeconds) * 1000) - 150);
+      filters.push(`[${idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=${sfxVol.toFixed(3)},adelay=${ms}:all=1[as${i}]`);
+      mixLabels.push(`as${i}`);
+      idx++;
+    });
+  }
+
+  if (mixLabels.length === 0) {
+    filters.push(`anullsrc=channel_layout=stereo:sample_rate=44100,atrim=0:${totalDuration.toFixed(3)}[aout]`);
+  } else {
+    const mixIn = mixLabels.map((l) => `[${l}]`).join("");
+    filters.push(
+      `${mixIn}amix=inputs=${mixLabels.length}:duration=longest:normalize=0,atrim=0:${totalDuration.toFixed(3)},apad=whole_dur=${totalDuration.toFixed(3)}[aout]`
+    );
+  }
+
+  const filterPath = outPath.replace(/\.[^.]+$/, "") + "_filter.txt";
+  fs.writeFileSync(filterPath, filters.join(";\n"), { encoding: "utf8" });
+  args.push("-filter_complex_script", filterPath, "-map", "[aout]", "-c:a", "aac", "-b:a", "160k", outPath);
+
+  await runFfmpeg(args, () => {});
+}
+
+/**
+ * Remotion으로 화면을 만들고 소리를 합쳐 최종 mp4를 만든다.
+ * (정지화면을 이어 붙이던 기존 방식을 대체)
+ */
+async function runRemotionJob(jobId: string, body: RenderVideoRequest, jobDir: string, ffBin: string) {
+  const voicePreset = body.voicePreset || "news-anchor";
+  const speechSpeed = clampNumber(body.speechSpeed, 0.8, 1.8, 1.0);
+  const slides = body.slides!;
+  const fps = 30;
+
+  // 1) 먼저 성우 음성을 만든다 — 장면 길이가 여기서 결정되기 때문
+  updateJob(jobId, { status: "synthesizing_audio", progress: 10 });
+  const lines = slides.map((s) => narrationForSlide(s, body.readCardDetail === true)).map((t) => t.trim());
+  const timedLines: TimedLine[] = [];
+  let cursor = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const { audioPath, durationSeconds } = await synthesizeLine(lines[i], voicePreset, speechSpeed);
+    const destWav = path.join(jobDir, `line_${String(i).padStart(3, "0")}.wav`);
+    fs.copyFileSync(audioPath, destWav);
+    timedLines.push({ text: lines[i], wavPath: destWav, start: cursor, end: cursor + durationSeconds });
+    cursor = cursor + durationSeconds + LINE_GAP_SECONDS;
+    updateJob(jobId, { progress: Math.round(10 + ((i + 1) / Math.max(1, lines.length)) * 35) });
+  }
+  const narrationDuration = Math.max(cursor, 1);
+
+  // 2) 장면 길이 = 그 장면 나레이션이 차지하는 구간
+  const sceneSeconds = timedLines.map((l, i) =>
+    i + 1 < timedLines.length ? timedLines[i + 1].start - l.start : narrationDuration - l.start
+  );
+
+  const introSeconds = body.withIntro ? 3.0 : 0;
+  const totalDuration = introSeconds + narrationDuration;
+  updateJob(jobId, { status: "rendering", progress: 48, totalDurationSeconds: totalDuration });
+
+  // 3) 화면 렌더링 (소리 없음)
+  const theme = body.slideTheme ?? { gradientFrom: "#1565c0", gradientTo: "#bbdefb", accent: "#1565c0" };
+  const hookSlide = slides.find((s) => s.kind === "hook");
+  const ctaSlide = slides.find((s) => s.kind === "cta");
+  const cardSlides = slides.filter((s) => s.kind === "card") as Extract<SlideSpec, { kind: "card" }>[];
+
+  const silentPath = path.join(jobDir, "video_silent.mp4");
+  await renderShortsVideo(
+    {
+      banner: body.bannerText || `${body.groupLabel} 안내`,
+      badge: hookSlide?.kind === "hook" ? hookSlide.badge : body.groupLabel,
+      headline: hookSlide?.kind === "hook" ? hookSlide.headline : body.title,
+      cards: cardSlides.map((c) => ({ number: c.number, title: c.title, detail: c.detail, highlight: c.highlight })),
+      ctaHeadline: ctaSlide?.kind === "cta" ? ctaSlide.headline : "지금 확인하세요",
+      ctaButton: ctaSlide?.kind === "cta" ? ctaSlide.buttonText : "",
+      ctaFootnote: ctaSlide?.kind === "cta" ? ctaSlide.footnote : "",
+      gradientTop: theme.gradientFrom,
+      gradientBottom: theme.gradientTo,
+      highlight: body.highlightColor || theme.accent,
+      channelName: body.channelName,
+      logoSrc: body.logoSrc,
+      sceneSeconds,
+      introSeconds,
+    },
+    silentPath,
+    fps,
+    (f) => updateJob(jobId, { progress: Math.min(88, 48 + Math.round(f * 40)) })
+  );
+
+  // 4) 소리 만들고 합치기 — 도입부만큼 나레이션을 뒤로 민다
+  updateJob(jobId, { progress: 90 });
+  const audioPath = path.join(jobDir, "audio.m4a");
+  await buildAudioTrack(timedLines, body, totalDuration, introSeconds, audioPath, ffBin);
+
+  const finalPath = path.join(jobDir, "output.mp4");
+  await runFfmpeg(
+    ["-y", "-i", silentPath, "-i", audioPath, "-map", "0:v", "-map", "1:a",
+     "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", finalPath],
+    () => {}
+  );
+
+  return { finalPath, totalDuration };
+}
+
 async function runRenderJob(jobId: string, body: RenderVideoRequest) {
   ensureDirs();
   const jobDir = path.join(TMP_ROOT, jobId);
@@ -287,6 +440,23 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
 
     // 카드뉴스 방식이면 슬라이드 이미지를 그리고, 아니면 예전처럼 AI 배경 1장을 쓴다.
     const useSlides = Array.isArray(body.slides) && body.slides.length > 0;
+
+    // 카드뉴스는 Remotion으로 만든다(움직임이 들어감). 예전 방식은 그대로 남겨두되
+    // Remotion 구성이 없을 때만 쓰인다.
+    if (useSlides && isRemotionAvailable()) {
+      const { finalPath, totalDuration } = await runRemotionJob(jobId, body, jobDir, ffBin);
+      const destPath = path.join(OUTPUT_DIR, `${jobId}.mp4`);
+      fs.copyFileSync(finalPath, destPath);
+      writeVideoMeta(jobId, {
+        title: body.title,
+        groupLabel: body.groupLabel,
+        durationSeconds: Math.round(totalDuration * 10) / 10,
+        createdAt: new Date().toISOString(),
+      });
+      updateJob(jobId, { status: "done", progress: 100, downloadUrl: `/api/video/download/${jobId}`, totalDurationSeconds: totalDuration });
+      fs.rm(jobDir, { recursive: true, force: true }, () => {});
+      return;
+    }
     let slideImagePaths: string[] = [];
     let imagePath = "";
 

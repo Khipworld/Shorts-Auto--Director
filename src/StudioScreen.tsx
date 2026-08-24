@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { callPipeline, getJson } from "./api";
 import { getCardTheme } from "./cardTheme";
+import { DEFAULT_BRAND, getBrandTheme } from "./brand";
 import { cardsToNarration } from "./buildCards";
 import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat, TOPIC_EXAMPLES } from "./studioOptions";
 import { buildTimedLines, formatTimecode, totalEstimatedSeconds, SEGMENT_LABEL, OPTIMAL_MAX_SECONDS, OPTIMAL_MIN_SECONDS } from "./subtitleTiming";
@@ -31,6 +32,7 @@ interface Props {
 // 아직 백엔드가 없는 항목(BGM/SFX)은 화면에서 지우지 않고 "준비중" 배지로 명확히 표시한다.
 export default function StudioScreen({ project, updateProject, onReset, onOpenWorkLog }: Props) {
   const theme = getCardTheme(project.groupId);
+  const brandTheme = getBrandTheme(DEFAULT_BRAND, project.groupId);
   const [selected, setSelected] = useState(0); // 0 = 후킹, 1.. = cards[i-1]
   const [rendering, setRendering] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -107,7 +109,11 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
       // 후킹 → 번호 카드들 → CTA. 미리보기에 보이는 것과 같은 장면이 그대로 영상이 된다.
       const slides = [
         { kind: "hook" as const, badge: `${project.groupLabel} 지원`, headline: project.hookHeadline },
-        ...project.cards.map((c) => ({ kind: "card" as const, number: c.badge, title: c.title, detail: c.detail })),
+        ...project.cards.map((c) => {
+          // 설명에서 금액·수치를 뽑아 크게 강조한다(카드뉴스의 기본 문법).
+          const m = /((?:월\s*)?[\d,]+\s*(?:만원|원|억|%|명|일|개월|년))/.exec(c.detail);
+          return { kind: "card" as const, number: c.badge, title: c.title, detail: c.detail, highlight: m ? m[1].trim() : undefined };
+        }),
         {
           kind: "cta" as const,
           badge: `${project.groupLabel} 지원`,
@@ -130,7 +136,10 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         subtitleLayout: project.subtitleLayout,
         withIntro: project.withIntro,
         bannerText: `${project.groupLabel} 지원정책 안내`,
-        slideTheme: { gradientFrom: theme.gradientFrom, gradientTo: theme.gradientTo, accent: theme.accent },
+        channelName: DEFAULT_BRAND.channelName,
+        logoSrc: DEFAULT_BRAND.showLogo ? DEFAULT_BRAND.logoPath : undefined,
+        highlightColor: brandTheme.highlight,
+        slideTheme: { gradientFrom: brandTheme.gradientTop, gradientTo: brandTheme.gradientBottom, accent: brandTheme.highlight },
         slides,
         subtitles,
       });

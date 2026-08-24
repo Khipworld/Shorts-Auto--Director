@@ -28,7 +28,7 @@ export const DEFAULT_SLIDE_LAYOUT: SlideLayout = { vertical: 50, horizontal: 50,
 
 export type SlideSpec =
   | { kind: "hook"; badge: string; headline: string }
-  | { kind: "card"; number: string; title: string; detail: string }
+  | { kind: "card"; number: string; title: string; detail: string; highlight?: string }
   | { kind: "cta"; badge: string; headline: string; buttonText: string; footnote: string };
 
 const WIDTH = 1080;
