@@ -3,12 +3,24 @@ import { callPipeline, getJson } from "./api";
 import { getCardTheme } from "./cardTheme";
 import { DEFAULT_BRAND, getBrandTheme } from "./brand";
 import { cardsToNarration } from "./buildCards";
-import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat, TOPIC_EXAMPLES } from "./studioOptions";
+import { VOICE_PRESETS, BGM_PRESETS, SFX_PRESETS, VIDEO_FORMATS, getFormat } from "./studioOptions";
 import { buildTimedLines, formatTimecode, totalEstimatedSeconds, SEGMENT_LABEL, OPTIMAL_MAX_SECONDS, OPTIMAL_MIN_SECONDS } from "./subtitleTiming";
-import { inferGroupFromTopic } from "./inferGroup";
+import { inferCategory } from "./pipeline/0-category/categories";
+import { makeScopeKey } from "./pipeline/0-category/scope";
 import { usePipeline } from "./usePipeline";
 import type { ProjectState, CardItem, AudioSettings, SubtitleLayout } from "./App";
 import type { SubtitleLine, LifecycleGroup } from "./types";
+
+/** 서버가 내려주는 카테고리 목록 항목 (설정은 서버에만 두고 고르는 데 필요한 것만 받는다) */
+interface CategoryOption {
+  id: string;
+  label: string;
+  summary: string;
+  examples: string[];
+  bannerText: string;
+  ctaHeadline: string;
+  ctaButton: string;
+}
 
 interface Props {
   project: ProjectState;
@@ -45,18 +57,31 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   const [sampleError, setSampleError] = useState("");
 
   const [groups, setGroups] = useState<LifecycleGroup[]>([]);
-  const [manualGroupId, setManualGroupId] = useState(""); // 주제로 그룹을 못 알아냈을 때만 씀
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  // 사용자 지시: 자동 인식 대신 선택 상자로 직접 고른다. 주제를 치면 후보를 제안만 한다.
+  const [categoryId, setCategoryId] = useState("");
+  const [audience, setAudience] = useState(""); // 공공정보에서만 쓰는 대상(임신부 등)
   const pipeline = usePipeline(project, updateProject);
 
   useEffect(() => {
     getJson<{ groups: LifecycleGroup[] }>("/api/pipeline/1/groups")
       .then((d) => setGroups(d.groups))
       .catch(() => setGroups([]));
+    getJson<{ categories: CategoryOption[] }>("/api/categories")
+      .then((d) => setCategories(d.categories))
+      .catch(() => setCategories([]));
   }, []);
 
-  const guess = inferGroupFromTopic(project.topic, groups);
-  const resolvedGroupId = guess?.groupId || manualGroupId;
-  const resolvedGroupLabel = guess?.groupLabel || groups.find((g) => g.id === manualGroupId)?.label || "";
+  // 주제에서 카테고리 후보를 제안한다 — 고르는 건 사용자다(자동으로 정하지 않음).
+  const suggestion = inferCategory(project.topic);
+  const suggestedId = suggestion?.category.id ?? "";
+  const effectiveCategoryId = categoryId || suggestedId;
+  const selectedCategory = categories.find((c) => c.id === effectiveCategoryId);
+  // 공공정보는 대상(임신부·청년 등)까지 골라야 예전과 같은 자료를 찾는다.
+  const needsAudience = effectiveCategoryId === "public_info";
+  const canStart = !!effectiveCategoryId && (!needsAudience || !!audience);
+  const scopeKey = effectiveCategoryId ? makeScopeKey(effectiveCategoryId, audience) : "";
+  const scopeLabel = audience || selectedCategory?.label || "";
   const hasContent = project.cards.length > 0 || project.hookHeadline.trim().length > 0;
 
   async function playVoiceSample() {
@@ -80,13 +105,14 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   }
 
   async function startPipeline(skipWarning = false) {
-    if (!resolvedGroupId) return;
+    if (!canStart) return;
     await pipeline.run(
       {
-        groupId: resolvedGroupId,
-        groupLabel: resolvedGroupLabel,
+        groupId: scopeKey,
+        groupLabel: scopeLabel,
         platformId: project.platformId,
         topic: project.topic.trim(),
+        categoryId: effectiveCategoryId,
         isSponsoredContent: project.isSponsoredContent === true,
       },
       skipWarning
@@ -132,8 +158,12 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
 
       // 참고 영상(01_임신부_후킹결합.mp4)과 같은 카드뉴스 구성으로 만든다:
       // 후킹 → 번호 카드들 → CTA. 미리보기에 보이는 것과 같은 장면이 그대로 영상이 된다.
+      // 배너·CTA 문구는 카테고리마다 다르다. 목록을 아직 못 받았으면 예전 문구를 그대로 쓴다.
+      const cat = categories.find((c) => c.id === project.categoryId);
+      const badgeText = project.groupLabel ? `${project.groupLabel} ${cat ? "" : "지원"}`.trim() : cat?.label ?? "";
+
       const slides = [
-        { kind: "hook" as const, badge: `${project.groupLabel} 지원`, headline: project.hookHeadline },
+        { kind: "hook" as const, badge: badgeText, headline: project.hookHeadline },
         ...project.cards.map((c) => {
           // 설명에서 금액·수치를 뽑아 크게 강조한다(카드뉴스의 기본 문법).
           const m = /((?:월\s*)?[\d,]+\s*(?:만원|원|억|%|명|일|개월|년))/.exec(c.detail);
@@ -141,9 +171,9 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         }),
         {
           kind: "cta" as const,
-          badge: `${project.groupLabel} 지원`,
-          headline: "내 지원금 지금 확인하세요",
-          buttonText: "프로필 링크에서 확인",
+          badge: badgeText,
+          headline: cat?.ctaHeadline ?? "내 지원금 지금 확인하세요",
+          buttonText: cat?.ctaButton ?? "프로필 링크에서 확인",
           footnote: `${new Date().getFullYear()}년 ${new Date().getMonth() + 1}월 기준`,
         },
       ].filter((s) => (s.kind === "card" ? s.title.trim() : s.headline.trim()));
@@ -160,7 +190,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         sfxVolume: project.audio.sfxVolume,
         subtitleLayout: project.subtitleLayout,
         withIntro: project.withIntro,
-        bannerText: `${project.groupLabel} 지원정책 안내`,
+        bannerText: cat?.bannerText ?? `${project.groupLabel} 지원정책 안내`,
         channelName: DEFAULT_BRAND.channelName,
         logoSrc: DEFAULT_BRAND.showLogo ? DEFAULT_BRAND.logoPath : undefined,
         highlightColor: brandTheme.highlight,
@@ -211,11 +241,38 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         </div>
       </div>
 
-      {/* 주제 입력 — 이 화면의 시작점. 대상 그룹은 주제에서 자동으로 알아낸다. */}
+      {/* 주제 입력 — 이 화면의 시작점.
+          사용자 지시(2026-08-24): 카테고리는 자동 인식이 아니라 선택 상자로 직접 고른다.
+          주제를 치면 후보만 제안하고, 최종 결정은 사용자가 한다. */}
       <div className="card topic-bar">
         <div className="field-label" style={{ marginBottom: 8 }}>
           📝 어떤 주제로 만들까요?
-          {resolvedGroupLabel && <span className="pill pill-live">{resolvedGroupLabel} 대상</span>}
+          {selectedCategory && <span className="pill pill-live">{selectedCategory.label}</span>}
+        </div>
+
+        <div className="topic-row" style={{ marginBottom: 8 }}>
+          <select
+            value={effectiveCategoryId}
+            disabled={pipeline.running}
+            onChange={(e) => { setCategoryId(e.target.value); setAudience(""); }}
+            style={{ flex: 1 }}
+          >
+            <option value="">카테고리를 골라주세요</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.label} — {c.summary}</option>
+            ))}
+          </select>
+          {needsAudience && (
+            <select
+              value={audience}
+              disabled={pipeline.running}
+              onChange={(e) => setAudience(e.target.value)}
+              style={{ flex: 1 }}
+            >
+              <option value="">대상을 골라주세요</option>
+              {groups.map((g) => <option key={g.id} value={g.label}>{g.label}</option>)}
+            </select>
+          )}
         </div>
         <div className="topic-row">
           <input
@@ -224,36 +281,32 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
             placeholder="예: 2026년 임신·출산 지원금 총정리"
             disabled={pipeline.running}
             onChange={(e) => update({ topic: e.target.value })}
-            onKeyDown={(e) => { if (e.key === "Enter" && resolvedGroupId && !pipeline.running) startPipeline(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && canStart && !pipeline.running) startPipeline(); }}
           />
           <button
             className="primary"
-            disabled={pipeline.running || rendering || !project.topic.trim() || !resolvedGroupId}
+            disabled={pipeline.running || rendering || !project.topic.trim() || !canStart}
             onClick={() => startPipeline()}
           >
             {pipeline.running ? "만드는 중..." : hasContent ? "이 주제로 다시 만들기" : "만들기 →"}
           </button>
         </div>
 
-        {/* 주제에서 대상을 못 알아낸 경우에만 물어본다 — 아무거나 찍어서 진행하지 않기 위함 */}
-        {project.topic.trim() && !guess && (
-          <div className="topic-row" style={{ marginTop: 8 }}>
-            <select value={manualGroupId} onChange={(e) => setManualGroupId(e.target.value)} style={{ flex: 1 }}>
-              <option value="">주제에서 대상을 알아내지 못했습니다 — 직접 골라주세요</option>
-              {groups.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-            </select>
-          </div>
-        )}
-
-        {guess && (
+        {/* 주제에서 카테고리를 짐작할 수 있으면 알려만 준다 — 고르는 건 사용자 */}
+        {suggestion && !categoryId && (
           <div className="item-meta" style={{ marginTop: 6 }}>
-            주제에 들어간 "{guess.matchedWord}" → <b>{guess.groupLabel}</b> 대상으로 자료를 찾습니다.
+            주제에 들어간 "{suggestion.matchedWord}" → <b>{suggestion.category.label}</b>로 짐작했습니다. 다르면 위에서 바꿔주세요.
+          </div>
+        )}
+        {needsAudience && !audience && (
+          <div className="item-meta" style={{ marginTop: 6 }}>
+            공공정보는 누구를 위한 정보인지에 따라 찾는 자료가 달라집니다 — 대상도 골라주세요.
           </div>
         )}
 
-        {!project.topic.trim() && (
+        {!project.topic.trim() && !!selectedCategory && selectedCategory.examples.length > 0 && (
           <div className="chips" style={{ marginTop: 8 }}>
-            {Object.values(TOPIC_EXAMPLES).slice(0, 3).map((t) => (
+            {selectedCategory.examples.map((t) => (
               <button key={t} type="button" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => update({ topic: t })}>
                 {t}
               </button>

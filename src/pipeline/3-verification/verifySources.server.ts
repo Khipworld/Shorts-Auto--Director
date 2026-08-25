@@ -6,7 +6,7 @@
 // 갈렸는지 decisionLog에 그대로 남겨서 사용자가 실제 판단 근거를 확인할 수 있게 한다.
 import { callClaudeJSON } from "../../core/claude.server";
 import { getLatestRun, RawCollectedItem } from "../1-data-collection/snapshotStore";
-import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
+import { resolveScope } from "../0-category/scope";
 import { classifySourceTrust } from "./sourceTrustTiers";
 import { detectAmounts } from "./detectAmounts";
 
@@ -59,7 +59,7 @@ const crossCheckSchema = {
   required: ["clusters"],
 };
 
-async function crossCheckItems(items: RawCollectedItem[]): Promise<ClusterInfo[]> {
+async function crossCheckItems(items: RawCollectedItem[], verificationFocus: string): Promise<ClusterInfo[]> {
   if (items.length < 2) return [];
   const itemList = items.map((item, i) => `${i + 1}. ${item.title}\n   ${item.summary}\n   출처: ${item.sourceUrl}`).join("\n\n");
   const result = await callClaudeJSON(
@@ -73,15 +73,14 @@ async function crossCheckItems(items: RawCollectedItem[]): Promise<ClusterInfo[]
 }
 
 export async function verifySourcesForGroup(groupId: string): Promise<VerificationReport> {
-  const group = getLifecycleGroup(groupId);
-  if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
+  const scope = resolveScope(groupId);
 
   const latestRun = getLatestRun(groupId);
   if (!latestRun || !latestRun.items.length) {
     throw new Error("이 그룹에 대해 먼저 [1]자료 수집을 실행해야 합니다 (수집된 항목이 없습니다).");
   }
 
-  const clusters = await crossCheckItems(latestRun.items);
+  const clusters = await crossCheckItems(latestRun.items, scope.category.verificationFocus);
 
   const results: VerificationResult[] = latestRun.items.map((item, idx) => {
     const itemNumber = idx + 1;
@@ -128,7 +127,7 @@ export async function verifySourcesForGroup(groupId: string): Promise<Verificati
 
   return {
     groupId,
-    groupLabel: group.label,
+    groupLabel: scope.label,
     basedOnCollectedAt: latestRun.collectedAt,
     results,
   };

@@ -8,6 +8,7 @@ import { findVerifiedPhoto } from "./src/pipeline/7-subtitles-media/imageSearch.
 import { splitNarrationIntoSubtitles, classifyAnthropicError } from "./src/pipeline/7-subtitles-media/subtitleSplit.server";
 import { collectSourcesForGroup } from "./src/pipeline/1-data-collection/collectSources.server";
 import { LIFECYCLE_GROUPS } from "./src/pipeline/1-data-collection/lifecycleGroups";
+import { CATEGORIES } from "./src/pipeline/0-category/categories";
 import { analyzeProsCons } from "./src/pipeline/2-pros-cons/analyzeProsCons.server";
 import { verifySourcesForGroup } from "./src/pipeline/3-verification/verifySources.server";
 import { checkConstraints } from "./src/pipeline/4-constraints/checkConstraints.server";
@@ -38,6 +39,22 @@ registerVideoRenderRoutes(app);
 // [1] 자료 수집 — 생애주기 그룹 목록 (정보/시사성 > 정부지원사업·정책 안내 1차 카테고리)
 app.get("/api/pipeline/1/groups", (_req, res) => {
   res.json({ groups: LIFECYCLE_GROUPS });
+});
+
+// 카테고리 목록 — 화면의 선택 상자에 쓴다. 설정(프롬프트·검증기준 등)은 서버에만 두고
+// 화면에는 고르는 데 필요한 것만 내려보낸다.
+app.get("/api/categories", (_req, res) => {
+  res.json({
+    categories: CATEGORIES.map((c) => ({
+      id: c.id,
+      label: c.label,
+      summary: c.summary,
+      examples: c.examples,
+      bannerText: c.bannerText,
+      ctaHeadline: c.ctaHeadline,
+      ctaButton: c.ctaButton,
+    })),
+  });
 });
 
 // [1] 자료 수집 — 그룹 하나에 대해 웹 검색으로 출처 수집 + 신뢰도 등급 + 신규/변경 판정

@@ -3,7 +3,7 @@
 // 진행 여부를 판단할 수 있는 요약 리포트로 출력한다.
 import { callClaudeJSON } from "../../core/claude.server";
 import { getLatestRun } from "../1-data-collection/snapshotStore";
-import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
+import { resolveScope } from "../0-category/scope";
 
 export interface ItemProsCons {
   title: string;
@@ -44,8 +44,7 @@ const prosConsSchema = {
 };
 
 export async function analyzeProsCons(groupId: string): Promise<ProsConsReport> {
-  const group = getLifecycleGroup(groupId);
-  if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
+  const scope = resolveScope(groupId);
 
   const latestRun = getLatestRun(groupId);
   if (!latestRun || !latestRun.items.length) {
@@ -58,7 +57,7 @@ export async function analyzeProsCons(groupId: string): Promise<ProsConsReport> 
 
   const analyzed = await callClaudeJSON(
     "당신은 쇼츠(숏폼) 영상 제작 여부를 판단하기 위한 콘텐츠 기획 분석가입니다. 화제성/공감도/정보가치는 장점으로, 민감성/편향 우려/정보 신뢰도 낮음은 단점으로 분류합니다.",
-    `"${group.label}" 대상 정부 지원 정책 항목들입니다. 각 항목을 쇼츠 소재로 다룰 때의 장단점을 분석해주세요.\n\n${itemList}`,
+    `"${scope.label}" 관련 ${scope.category.summary} 항목들입니다. 각 항목을 쇼츠 소재로 다룰 때의 장단점을 분석해주세요.\n\n${itemList}`,
     "analyze_pros_cons",
     prosConsSchema,
     { maxTokens: 2000 }
@@ -75,7 +74,7 @@ export async function analyzeProsCons(groupId: string): Promise<ProsConsReport> 
 
   return {
     groupId,
-    groupLabel: group.label,
+    groupLabel: scope.label,
     basedOnCollectedAt: latestRun.collectedAt,
     items,
     overallRecommendation: typeof analyzed?.overallRecommendation === "string" ? analyzed.overallRecommendation : "",

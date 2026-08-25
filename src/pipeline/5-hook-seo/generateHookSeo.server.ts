@@ -8,7 +8,7 @@
 // 나중에 실제 영상 편집 단계에서 카드 전환 속도를 더 빠르게 하는 방향은 이미 한 번 거절된 적
 // 있다는 것을 참고할 것 (문구/노출 순서 등 다른 축으로만 후킹을 개선).
 import { callClaudeJSON } from "../../core/claude.server";
-import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
+import { resolveScope } from "../0-category/scope";
 import { verifySourcesForGroup } from "../3-verification/verifySources.server";
 import { filterLeakedStrings } from "../3-verification/unverifiedLeakCheck";
 import { PLATFORM_SPECS, getPlatformSpec, PlatformSpec } from "./platformSpecs";
@@ -61,8 +61,7 @@ export async function generateHookSeo(
   platformIds?: string[],
   adReferences?: AdReferenceReport
 ): Promise<HookSeoReport> {
-  const group = getLifecycleGroup(groupId);
-  if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
+  const scope = resolveScope(groupId);
 
   const targetPlatforms: PlatformSpec[] = (platformIds?.length ? platformIds : PLATFORM_SPECS.map((p) => p.id))
     .map((id) => getPlatformSpec(id))
@@ -86,7 +85,7 @@ export async function generateHookSeo(
   const currentYear = new Date().getFullYear();
   const result = await callClaudeJSON(
     `당신은 쇼츠(숏폼) 영상의 후킹 문구와 SEO 해시태그를 전문으로 다루는 콘텐츠 마케터입니다. 플랫폼마다 톤과 접근을 다르게 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 반드시 항목에 실제로 명시된 연도를 그대로 쓰고, 확인되지 않았다면 아무 연도나 습관적으로 쓰지 마세요(특히 ${currentYear - 1}년처럼 지난 연도를 쓰지 않도록 주의).`,
-    `"${group.label}" 대상의 다음 정부 지원 정책 항목들로 쇼츠를 만듭니다:\n${itemSummaries}${excludedNote}${formatAdPatternsForPrompt(adReferences)}\n\n아래 플랫폼별로 각각 다른 후킹 문구/해시태그/썸네일 문구를 만들어주세요. 위 "다루면 안 되는 항목"과 관련된 키워드나 해시태그는 절대 포함하지 마세요:\n${platformPrompt}`,
+    `"${scope.label}" 관련 다음 항목들로 쇼츠를 만듭니다(분야: ${scope.category.label}):\n${itemSummaries}${excludedNote}${formatAdPatternsForPrompt(adReferences)}\n\n아래 플랫폼별로 각각 다른 후킹 문구/해시태그/썸네일 문구를 만들어주세요. 위 "다루면 안 되는 항목"과 관련된 키워드나 해시태그는 절대 포함하지 마세요:\n${platformPrompt}`,
     "generate_hook_seo",
     hookSeoSchema,
     { maxTokens: 2000 }
@@ -113,7 +112,7 @@ export async function generateHookSeo(
 
   return {
     groupId,
-    groupLabel: group.label,
+    groupLabel: scope.label,
     excludedUnverifiedCount,
     platforms,
     adReferenceCount: adReferences?.references.length ?? 0,

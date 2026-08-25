@@ -53,6 +53,7 @@ export interface ProjectState {
   groupLabel: string;
   platformId: string;
   topic: string; // 사용자가 직접 입력한 주제 (비어 있으면 그룹 전체를 주제로 봄)
+  categoryId: string; // 콘텐츠 종류 (public_info / product / place / knowledge / trend / etc)
   isSponsoredContent?: boolean;
 
   formatId: string;
@@ -81,6 +82,7 @@ export interface StartOptions {
   platformId: string;
   topic: string;
   isSponsoredContent: boolean;
+  categoryId?: string;
 }
 
 // 화면을 열자마자 스튜디오가 보이도록, 아직 아무것도 만들지 않은 빈 작업물로 시작한다.
@@ -95,6 +97,7 @@ export function emptyProject(opts: StartOptions): ProjectState {
     groupLabel: opts.groupLabel,
     platformId: opts.platformId,
     topic: opts.topic,
+    categoryId: opts.categoryId ?? "",
     isSponsoredContent: opts.isSponsoredContent,
 
     formatId: "shorts_9_16",
@@ -132,6 +135,7 @@ function demoProject(): ProjectState {
     platformId: "youtube_shorts",
     topic: "2026년 청년 지원 정책 총정리",
     isSponsoredContent: false,
+    categoryId: "public_info",
   });
   return {
     ...base,

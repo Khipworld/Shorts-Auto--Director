@@ -41,7 +41,7 @@ export function usePipeline(
     setState({ running: false, statusText: "", error: "", blockingWarning: null });
   }
 
-  async function run(opts: { groupId: string; groupLabel: string; platformId: string; topic: string; isSponsoredContent: boolean }, skipWarningCheck = false) {
+  async function run(opts: { groupId: string; groupLabel: string; platformId: string; topic: string; isSponsoredContent: boolean; categoryId: string }, skipWarningCheck = false) {
     setState({ running: true, statusText: "자료 찾는 중...", error: "", blockingWarning: null });
     try {
       let collection = cache.current.collection;
@@ -117,6 +117,7 @@ export function usePipeline(
         groupLabel: opts.groupLabel,
         platformId: opts.platformId,
         topic: opts.topic,
+        categoryId: opts.categoryId,
         isSponsoredContent: opts.isSponsoredContent,
         collection,
         verification,

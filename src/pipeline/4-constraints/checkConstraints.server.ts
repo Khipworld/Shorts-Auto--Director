@@ -5,7 +5,7 @@
 // 요구하고, 임의로 통과시키지 않는다.
 import { callClaudeJSON } from "../../core/claude.server";
 import { getLatestRun } from "../1-data-collection/snapshotStore";
-import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
+import { resolveScope } from "../0-category/scope";
 import { IMAGE_LICENSE_ADVISORY } from "./imageLicenseAdvisory";
 
 export type ConstraintStatus = "ok" | "needs_review" | "warning";
@@ -38,7 +38,7 @@ const neutralityCheckSchema = {
 async function checkPoliticalNeutralityAndDefamation(itemSummaries: string): Promise<ConstraintCheckItem[]> {
   const result = await callClaudeJSON(
     "당신은 미디어 콘텐츠의 정치적 편향성과 명예훼손 소지를 검토하는 법무/편집 검수자입니다. 정부 정책을 사실 그대로 소개하는 것은 편향이 아니며, 특정 정당을 홍보하거나 반대로 비난하는 어조가 있을 때만 편향으로 판단하세요.",
-    `다음은 쇼츠 영상 소재로 쓸 정부 지원 정책 요약들입니다. 정치적 편향, 명예훼손 소지를 검토해주세요.\n\n${itemSummaries}`,
+    `다음은 쇼츠 영상 소재로 쓸 항목 요약들입니다. 정치적 편향, 명예훼손 소지를 검토해주세요.\n\n${itemSummaries}`,
     "check_neutrality",
     neutralityCheckSchema,
     { maxTokens: 800 }
@@ -91,6 +91,48 @@ function checkAdDisclosure(isSponsoredContent?: boolean): ConstraintCheckItem {
   };
 }
 
+/**
+ * 표시광고법 — 상품·서비스 카테고리 전용.
+ * 근거 없는 "최고/1위/유일" 같은 표현은 실제로 법 위반이 될 수 있어서
+ * 수집된 내용에 그런 표현이 있으면 사람이 확인하도록 세운다.
+ */
+function checkFalseAdvertising(itemSummaries: string): ConstraintCheckItem {
+  const risky = ["최고", "최상", "1위", "유일", "100%", "완벽", "무조건", "확실히"];
+  const found = risky.filter((w) => itemSummaries.includes(w));
+  return {
+    id: "false_advertising",
+    label: "표시광고법 · 과대광고",
+    status: found.length ? "warning" : "needs_review",
+    detail: found.length
+      ? `수집된 내용에 근거가 필요한 표현이 있습니다: ${found.join(", ")} — 객관적 근거(시험 성적서, 공신력 있는 조사 등)가 없으면 표시광고법 위반이 될 수 있으므로 문구를 고치거나 근거를 명시하세요.`
+      : "단정적 과장 표현은 발견되지 않았습니다. 다만 가격·성능 비교를 넣을 때는 비교 시점과 기준을 함께 밝히세요.",
+  };
+}
+
+/** 초상권 — 여행·장소 카테고리 전용. 장소 사진에는 사람이 찍히기 쉽다. */
+function checkPortraitRight(): ConstraintCheckItem {
+  return {
+    id: "portrait_right",
+    label: "초상권",
+    status: "needs_review",
+    detail: "장소 사진에는 지나가는 사람이 함께 찍히는 경우가 많습니다 — 얼굴이 식별되는 사진은 피하거나 가려서 쓰세요. 매장 내부 촬영은 업주 동의가 필요할 수 있습니다.",
+  };
+}
+
+/** 의료·법률·투자 등은 단정적으로 말하면 안 된다 — 지식·정보 카테고리 전용. */
+function checkProfessionalAdvice(itemSummaries: string): ConstraintCheckItem {
+  const fields = ["의료", "약", "치료", "진단", "법률", "소송", "투자", "주식", "세금", "보험"];
+  const found = fields.filter((w) => itemSummaries.includes(w));
+  return {
+    id: "professional_advice",
+    label: "전문분야 단정 주의",
+    status: found.length ? "needs_review" : "ok",
+    detail: found.length
+      ? `${found.join(", ")} 관련 내용이 있습니다 — 개인에게 맞는 조언처럼 들리지 않도록 하고, "전문가 상담이 필요합니다" 같은 안내를 넣으세요.`
+      : "전문 자격이 필요한 분야 내용은 발견되지 않았습니다.",
+  };
+}
+
 function checkImageLicenseAdvisory(): ConstraintCheckItem {
   const naver = IMAGE_LICENSE_ADVISORY.find((a) => a.source === "Naver")!;
   return {
@@ -102,8 +144,7 @@ function checkImageLicenseAdvisory(): ConstraintCheckItem {
 }
 
 export async function checkConstraints(groupId: string, opts: { isSponsoredContent?: boolean } = {}): Promise<ConstraintReport> {
-  const group = getLifecycleGroup(groupId);
-  if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
+  const scope = resolveScope(groupId);
 
   const latestRun = getLatestRun(groupId);
   if (!latestRun || !latestRun.items.length) {
@@ -111,17 +152,26 @@ export async function checkConstraints(groupId: string, opts: { isSponsoredConte
   }
   const itemSummaries = latestRun.items.map((item) => `- ${item.title}: ${item.summary}`).join("\n");
 
-  const neutralityChecks = await checkPoliticalNeutralityAndDefamation(itemSummaries);
-  const checks: ConstraintCheckItem[] = [
-    ...neutralityChecks,
-    checkMinorDepiction(groupId),
-    checkAdDisclosure(opts.isSponsoredContent),
-    checkImageLicenseAdvisory(),
-  ];
+  // 카테고리마다 봐야 할 항목이 다르다 — categories.ts의 constraintIds에 정의돼 있다.
+  // 예: 상품·서비스는 표시광고법이 핵심이고, 여행·장소는 초상권이 중요하다.
+  const wanted = new Set(scope.category.constraintIds);
+  const checks: ConstraintCheckItem[] = [];
+
+  // 정치편향·명예훼손은 AI 호출이 필요하므로 해당 카테고리일 때만 부른다(비용 절약).
+  if (wanted.has("political_bias") || wanted.has("defamation")) {
+    const neutralityChecks = await checkPoliticalNeutralityAndDefamation(itemSummaries);
+    checks.push(...neutralityChecks.filter((c) => wanted.has(c.id)));
+  }
+  if (wanted.has("minor_depiction")) checks.push(checkMinorDepiction(groupId));
+  if (wanted.has("ad_disclosure")) checks.push(checkAdDisclosure(opts.isSponsoredContent));
+  if (wanted.has("false_advertising")) checks.push(checkFalseAdvertising(itemSummaries));
+  if (wanted.has("portrait_right")) checks.push(checkPortraitRight());
+  if (wanted.has("professional_advice")) checks.push(checkProfessionalAdvice(itemSummaries));
+  if (wanted.has("image_license")) checks.push(checkImageLicenseAdvisory());
 
   return {
     groupId,
-    groupLabel: group.label,
+    groupLabel: scope.label,
     checks,
     hasBlockingIssue: checks.some((c) => c.status === "warning"),
   };

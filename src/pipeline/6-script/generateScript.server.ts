@@ -6,7 +6,7 @@
 // unverified 항목을 아예 빼고 생성하지만, 그것만 믿지 않고 생성된 나레이션에 unverified 항목의
 // 제목 단어가 상당 부분 등장하는지 별도로 다시 검사한다(checkUnverifiedLeakage).
 import { callClaudeJSON } from "../../core/claude.server";
-import { getLifecycleGroup } from "../1-data-collection/lifecycleGroups";
+import { resolveScope } from "../0-category/scope";
 import { verifySourcesForGroup } from "../3-verification/verifySources.server";
 import { checkUnverifiedLeakage } from "../3-verification/unverifiedLeakCheck";
 import { getPlatformSpec } from "../5-hook-seo/platformSpecs";
@@ -40,8 +40,7 @@ export async function generateScript(
   platformId: string,
   opts: { chosenHook?: string } = {}
 ): Promise<ScriptResult> {
-  const group = getLifecycleGroup(groupId);
-  if (!group) throw new Error(`알 수 없는 생애주기 그룹입니다: ${groupId}`);
+  const scope = resolveScope(groupId);
   const platformSpec = getPlatformSpec(platformId);
   if (!platformSpec) throw new Error(`알 수 없는 플랫폼입니다: ${platformId}`);
 
@@ -63,19 +62,19 @@ export async function generateScript(
 
   const currentYear = new Date().getFullYear();
   const result = await callClaudeJSON(
-    `당신은 정부 지원 정책을 알기 쉽게 설명하는 쇼츠(숏폼) 영상 작가입니다. 아래 제공된 항목에 없는 내용은 절대 추가하지 마세요. 과장이나 확정되지 않은 수치는 쓰지 마세요. 신뢰감 있고 친근한 정보 전달 톤을 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 항목에 실제로 나온 연도만 그대로 쓰고, 확인 안 된 연도(특히 ${currentYear - 1}년 등 지난 연도)를 습관적으로 쓰지 마세요.`,
-    `"${group.label}" 대상 쇼츠 영상 대본을 작성해주세요. ${hookInstruction}\n\n[사용 가능한 항목 — 이 내용만 근거로 쓸 것]\n${itemList}\n\n[요구사항]\n- 전체 나레이션은 한국어로 약 ${targetCharCount}자 내외(${targetDurationSec}초 분량)\n- 각 항목의 대상 조건과 신청 방법을 자연스럽게 풀어서 설명\n- 출처는 나레이션 안에 URL을 그대로 쓰지 말고 "정부 발표에 따르면" 같은 자연스러운 표현으로 처리`,
+    `당신은 ${scope.category.summary}을(를) 알기 쉽게 설명하는 쇼츠(숏폼) 영상 작가입니다. 아래 제공된 항목에 없는 내용은 절대 추가하지 마세요. 과장이나 확정되지 않은 수치는 쓰지 마세요. 신뢰감 있고 친근한 정보 전달 톤을 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 항목에 실제로 나온 연도만 그대로 쓰고, 확인 안 된 연도(특히 ${currentYear - 1}년 등 지난 연도)를 습관적으로 쓰지 마세요.`,
+    `"${scope.label}" 대상 쇼츠 영상 대본을 작성해주세요. ${hookInstruction}\n\n[사용 가능한 항목 — 이 내용만 근거로 쓸 것]\n${itemList}\n\n[요구사항]\n- 전체 나레이션은 한국어로 약 ${targetCharCount}자 내외(${targetDurationSec}초 분량)\n- 각 항목의 대상 조건과 신청 방법을 자연스럽게 풀어서 설명\n- 출처는 나레이션 안에 URL을 그대로 쓰지 말고 "정부 발표에 따르면" 같은 자연스러운 표현으로 처리`,
     "generate_script",
     scriptSchema,
     { maxTokens: 1500 }
   );
 
-  const title: string = typeof result?.title === "string" ? result.title : `${group.label} 지원 정책 안내`;
+  const title: string = typeof result?.title === "string" ? result.title : `${scope.label} ${scope.category.bannerText}`;
   const narration: string = typeof result?.narration === "string" ? result.narration : "";
 
   return {
     groupId,
-    groupLabel: group.label,
+    groupLabel: scope.label,
     platformId,
     title,
     narration,
