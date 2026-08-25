@@ -41,7 +41,7 @@ export function usePipeline(
     setState({ running: false, statusText: "", error: "", blockingWarning: null });
   }
 
-  async function run(opts: { groupId: string; groupLabel: string; platformId: string; topic: string; isSponsoredContent: boolean; categoryId: string }, skipWarningCheck = false) {
+  async function run(opts: { groupId: string; groupLabel: string; platformId: string; topic: string; isSponsoredContent: boolean; categoryId: string; categoryLabel: string }, skipWarningCheck = false) {
     setState({ running: true, statusText: "자료 찾는 중...", error: "", blockingWarning: null });
     try {
       let collection = cache.current.collection;
@@ -87,7 +87,7 @@ export function usePipeline(
       let adReferences: AdReferenceReport | undefined;
       try {
         adReferences = await callPipeline<AdReferenceReport>("/api/pipeline/5/ad-references", {
-          topic: opts.topic || `${opts.groupLabel} 정부 지원 정책`,
+          topic: opts.topic || `${opts.groupLabel} ${opts.categoryLabel}`.trim(),
           platformId: opts.platformId,
         });
       } catch {

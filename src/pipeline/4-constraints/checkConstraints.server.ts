@@ -29,7 +29,7 @@ const neutralityCheckSchema = {
   properties: {
     biased: { type: "boolean", description: "특정 정당/정치 세력을 일방적으로 홍보하거나 편향된 시각으로 서술하는지" },
     biasReasoning: { type: "string", description: "biased 판단 근거 (구체적으로 어떤 표현이 편향적인지, 없으면 '편향 소지 없음')" },
-    defamationRisk: { type: "boolean", description: "특정 개인/단체에 대한 명예훼손 소지가 있는지" },
+    defamationRisk: { type: "boolean", description: "특정 개인/단체의 사회적 평가를 떨어뜨리는 허위 사실이 있는지. 과장·근거 부족·호평은 여기에 해당하지 않으므로 false" },
     defamationReasoning: { type: "string", description: "defamationRisk 판단 근거 (없으면 '명예훼손 소지 없음')" },
   },
   required: ["biased", "biasReasoning", "defamationRisk", "defamationReasoning"],
@@ -37,7 +37,12 @@ const neutralityCheckSchema = {
 
 async function checkPoliticalNeutralityAndDefamation(itemSummaries: string): Promise<ConstraintCheckItem[]> {
   const result = await callClaudeJSON(
-    "당신은 미디어 콘텐츠의 정치적 편향성과 명예훼손 소지를 검토하는 법무/편집 검수자입니다. 정부 정책을 사실 그대로 소개하는 것은 편향이 아니며, 특정 정당을 홍보하거나 반대로 비난하는 어조가 있을 때만 편향으로 판단하세요.",
+    "당신은 미디어 콘텐츠의 정치적 편향성과 명예훼손 소지를 검토하는 법무/편집 검수자입니다.\n" +
+      "편향: 정책이나 사건을 사실 그대로 소개하는 것은 편향이 아닙니다. 특정 정당이나 세력을 홍보하거나 반대로 비난하는 어조가 있을 때만 편향으로 판단하세요.\n" +
+      "명예훼손: 명예훼손은 특정 개인이나 단체의 '사회적 평가를 떨어뜨리는' 허위 사실을 퍼뜨리는 것입니다. 평판을 떨어뜨리지 않는 서술은 아무리 부정확해도 명예훼손이 아닙니다.\n" +
+      "명예훼손이 아닌 것 — 어떤 정보가 확인되지 않았다고 사실대로 밝히는 것, 가격·사양을 비교하는 것, 공개된 정보를 그대로 전하는 것, 어떤 대상을 과하게 칭찬하거나 좋게 평가하는 것(호평은 평판을 깎지 않습니다), 근거가 부족하거나 과장된 표현.\n" +
+      "명예훼손인 것 — 허위 사실로 특정 개인·업체를 깎아내리거나, 확정되지 않은 의혹을 사실처럼 단정해 평판을 훼손하는 것.\n" +
+      "판단이 '명예훼손이라기보다는 과장/부정확에 가깝다'로 기운다면 defamationRisk 는 반드시 false 로 두고, 그 내용은 근거란에만 적으세요.",
     `다음은 쇼츠 영상 소재로 쓸 항목 요약들입니다. 정치적 편향, 명예훼손 소지를 검토해주세요.\n\n${itemSummaries}`,
     "check_neutrality",
     neutralityCheckSchema,
@@ -60,25 +65,40 @@ async function checkPoliticalNeutralityAndDefamation(itemSummaries: string): Pro
   ];
 }
 
-function checkMinorDepiction(groupId: string): ConstraintCheckItem {
-  const affectsMinors = groupId === "infant_child" || groupId === "teen";
+// 미성년자를 다루는지 판단하는 낱말들. 예전에는 생애주기 그룹 id(infant_child/teen)만
+// 봤기 때문에, 트렌드·뉴스처럼 대상이 정해지지 않은 카테고리에서는 내용이 아무리
+// 아동·청소년 이야기여도 늘 "해당 없음"이 나왔다.
+const MINOR_WORDS = [
+  "영유아", "유아", "아동", "어린이", "초등학생", "중학생", "고등학생",
+  "청소년", "미성년", "학생", "보육", "어린이집", "유치원", "학교",
+];
+
+function checkMinorDepiction(groupId: string, itemSummaries: string): ConstraintCheckItem {
+  const byGroup = groupId === "infant_child" || groupId === "teen";
+  const matched = MINOR_WORDS.filter((w) => itemSummaries.includes(w));
+  const affectsMinors = byGroup || matched.length > 0;
+
+  const why = byGroup
+    ? "이 그룹은 영유아·아동/청소년을 다룹니다"
+    : `수집된 내용에 미성년자 관련 표현이 있습니다: ${matched.slice(0, 5).join(", ")}`;
+
   return {
     id: "minor_depiction",
     label: "미성년자 관련 규제",
     status: affectsMinors ? "needs_review" : "ok",
     detail: affectsMinors
-      ? "이 그룹은 영유아·아동/청소년을 다룸 — 실제로 식별 가능한 미성년자 사진을 쓰면 보호자 동의가 필요하므로, [7]단계에서 스톡 사진(Unsplash/Pexels) 위주로 고르고 특정 개인이 식별되는 사진은 피할 것"
-      : "이 그룹은 미성년자를 직접 다루지 않음",
+      ? `${why} — 실제로 식별 가능한 미성년자 사진을 쓰면 보호자 동의가 필요하므로, [7]단계에서 스톡 사진(Unsplash/Pexels) 위주로 고르고 특정 개인이 식별되는 사진은 피할 것`
+      : "미성년자를 직접 다루는 내용은 발견되지 않았습니다",
   };
 }
 
-function checkAdDisclosure(isSponsoredContent?: boolean): ConstraintCheckItem {
+function checkAdDisclosure(isSponsoredContent: boolean | undefined, sponsorNoun: string): ConstraintCheckItem {
   if (isSponsoredContent === undefined) {
     return {
       id: "ad_disclosure",
       label: "광고/협찬 표시 의무",
       status: "needs_review",
-      detail: "이 콘텐츠가 정부/기관의 지원(협찬)을 받아 제작되는 것인지 확인이 필요합니다 — 그렇다면 표시광고법상 협찬 표시 문구를 영상에 넣어야 합니다.",
+      detail: `이 콘텐츠가 ${sponsorNoun}의 지원(협찬)을 받아 제작되는 것인지 확인이 필요합니다 — 그렇다면 표시광고법상 협찬 표시 문구를 영상에 넣어야 합니다.`,
     };
   }
   return {
@@ -162,8 +182,8 @@ export async function checkConstraints(groupId: string, opts: { isSponsoredConte
     const neutralityChecks = await checkPoliticalNeutralityAndDefamation(itemSummaries);
     checks.push(...neutralityChecks.filter((c) => wanted.has(c.id)));
   }
-  if (wanted.has("minor_depiction")) checks.push(checkMinorDepiction(groupId));
-  if (wanted.has("ad_disclosure")) checks.push(checkAdDisclosure(opts.isSponsoredContent));
+  if (wanted.has("minor_depiction")) checks.push(checkMinorDepiction(groupId, itemSummaries));
+  if (wanted.has("ad_disclosure")) checks.push(checkAdDisclosure(opts.isSponsoredContent, scope.category.sponsorNoun));
   if (wanted.has("false_advertising")) checks.push(checkFalseAdvertising(itemSummaries));
   if (wanted.has("portrait_right")) checks.push(checkPortraitRight());
   if (wanted.has("professional_advice")) checks.push(checkProfessionalAdvice(itemSummaries));

@@ -17,6 +17,7 @@ import { renderSlidesToPng, SlideSpec, SlideTheme, SlideLayout } from "./slideRe
 import { renderIntroClip, prependIntro } from "./introAnimator.server";
 import { renderShortsVideo, isRemotionAvailable } from "./remotionRender.server";
 import type { SubtitleLine } from "../7-subtitles-media/subtitleSplit.server";
+import { resolveCustomMusicPath } from "./musicLibrary.server";
 
 const OUTPUT_DIR = path.join(process.cwd(), "rendered-output");
 const TMP_ROOT = path.join(OUTPUT_DIR, "tmp");
@@ -60,7 +61,8 @@ export interface RenderVideoRequest {
   // 가장 큰 원인이고, 설명은 어차피 화면에 글씨로 남기 때문.
   readCardDetail?: boolean;
 
-  // 배경음악 / 전환 효과음. 프리셋 id("epic-doc" 등)이거나 "none"/미지정이면 안 넣는다.
+  // 배경음악 / 전환 효과음. 프리셋 id("epic-doc" 등), 사용자가 올린 음원이면 "custom:<id>",
+  // "none"/미지정이면 안 넣는다.
   // 볼륨은 0~100. 음원은 public/audio 아래에 있다(K-Street에서 가져옴, 상업 사용 가능).
   bgmTrack?: string;
   bgmVolume?: number;
@@ -100,6 +102,9 @@ function resolveAudioPath(dir: string, table: Record<string, string>, key?: stri
   return fs.existsSync(full) ? full : null;
 }
 function resolveBgmPath(key?: string): string | null {
+  // "custom:<id>" 는 사용자가 올린 내 음원 파일. 프리셋보다 먼저 확인한다.
+  const mine = resolveCustomMusicPath(key);
+  if (mine) return mine;
   return resolveAudioPath("bgm", BGM_FILES, key);
 }
 function resolveSfxPath(key?: string): string | null {
@@ -468,7 +473,7 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
         : undefined;
       slideImagePaths = renderSlidesToPng(
         body.slides!,
-        body.bannerText || `${body.groupLabel} 지원정책 안내`,
+        body.bannerText || body.groupLabel,
         theme,
         path.join(jobDir, "slides"),
         ffBin,
@@ -630,7 +635,7 @@ async function runRenderJob(jobId: string, body: RenderVideoRequest) {
           {
             gradientTop: theme.gradientFrom,
             gradientBottom: theme.gradientTo,
-            bannerText: body.bannerText || `${body.groupLabel} 지원정책 안내`,
+            bannerText: body.bannerText || body.groupLabel,
             badge,
             headline,
           },

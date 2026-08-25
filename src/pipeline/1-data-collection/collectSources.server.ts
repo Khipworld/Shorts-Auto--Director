@@ -35,25 +35,29 @@ export interface CollectionResult {
   excludedRegional: ExcludedRegionalItem[];
 }
 
-const extractionSchema = {
-  type: "object",
-  properties: {
-    items: {
-      type: "array",
-      description: "찾아낸 신규/변경 지원 정책 항목 목록",
+// 무엇을 뽑아낼지는 카테고리마다 다르다. 예전에는 "지원 정책 항목"으로 고정돼 있어서
+// 여행이나 상품 주제를 골라도 정책을 찾으라고 시키는 꼴이었다.
+function buildExtractionSchema(itemNoun: string) {
+  return {
+    type: "object",
+    properties: {
       items: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "정책/지원사업 항목 제목 (한 줄)" },
-          summary: { type: "string", description: "대상 조건, 지원 내용, 신청 방법을 담은 2~3문장 요약" },
-          sourceUrl: { type: "string", description: "이 항목의 근거가 된 실제 출처 URL" },
+        type: "array",
+        description: `찾아낸 ${itemNoun} 항목 목록`,
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: `${itemNoun} 항목 제목 (한 줄)` },
+            summary: { type: "string", description: "핵심 내용을 담은 2~3문장 요약" },
+            sourceUrl: { type: "string", description: "이 항목의 근거가 된 실제 출처 URL" },
+          },
+          required: ["title", "summary", "sourceUrl"],
         },
-        required: ["title", "summary", "sourceUrl"],
       },
     },
-  },
-  required: ["items"],
-};
+    required: ["items"],
+  };
+}
 
 // 사용자가 입력한 주제는 프롬프트 본문에 그냥 이어 붙이지 않고 따옴표로 감싼 별도 항목으로
 // 넘긴다 — 주제 칸에 "앞의 지시는 무시하고..." 같은 문장을 넣더라도 조사 지시 자체가
@@ -101,12 +105,21 @@ export async function collectSourcesForGroup(groupId: string, rawTopic?: string)
     "당신은 리서치 결과 텍스트를 정확한 JSON 항목으로 정리하는 데이터 정리 담당자입니다. 원문에 없는 내용을 추가하지 마세요.",
     `다음 조사 결과 텍스트에서 항목별로 제목/요약/출처 URL을 추출해 정리해주세요:\n\n"""${groundedText}"""`,
     "extract_items",
-    extractionSchema,
+    buildExtractionSchema(scope.category.itemNoun),
     { maxTokens: 2000 }
   );
 
+  // 출처 주소가 실제 주소일 때만 받는다.
+  // 정리 단계에서 주소를 못 찾으면 "<UNKNOWN>" 이나 "없음" 같은 자리표시자를 채워 넣는 일이
+  // 있는데(실측: 트렌드 주제에서 그대로 통과했음), 이 프로그램의 신뢰도 판정은 전적으로
+  // 출처 주소에 기대므로 주소가 없으면 판정 자체가 성립하지 않는다.
+  const isRealUrl = (u: unknown): u is string =>
+    typeof u === "string" && /^https?:\/\/[^\s<>"]+\.[^\s<>"]+/.test(u.trim());
+
   const allItems: RawCollectedItem[] = Array.isArray(structured?.items)
-    ? structured.items.filter((i: any) => i?.title && i?.summary && i?.sourceUrl)
+    ? structured.items
+        .filter((i: any) => i?.title && i?.summary && isRealUrl(i?.sourceUrl))
+        .map((i: any) => ({ ...i, sourceUrl: String(i.sourceUrl).trim() }))
     : [];
 
   // 특정 지자체에서만 되는 사업은 전국 대상 영상에 넣으면 대부분의 시청자에게 쓸모없다

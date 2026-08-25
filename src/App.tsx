@@ -40,7 +40,8 @@ export interface AudioSettings {
   // 내 음원 — 켜면 프리셋 BGM 대신 이 파일을 쓴다.
   // 뮤직비디오 모드도 여기로 들어온다(음악이 타임라인을 결정하는 방식).
   customBgmEnabled: boolean;
-  customBgmName: string;
+  customBgmId: string;   // 서버 보관함(/api/music)에 올린 음원의 id. 비어 있으면 아직 안 고름.
+  customBgmName: string; // 화면에 보여줄 이름 (보관함에서 지우면 비워진다)
   customBgmVolume: number;
 
   sfxEnabled: boolean;
@@ -151,6 +152,7 @@ export function emptyProject(opts: StartOptions): ProjectState {
       speechSpeed: 1.4,
       bgmPreset: "epic-doc",
       bgmVolume: 60,
+      customBgmId: "",
       customBgmName: "",
       customBgmVolume: 40,
       sfxPreset: "epic-doc",

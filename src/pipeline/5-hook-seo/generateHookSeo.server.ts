@@ -73,7 +73,7 @@ export async function generateHookSeo(
   const unverified = verification.results.filter((r) => r.finalStatus === "unverified");
   const excludedUnverifiedCount = unverified.length;
   if (!usable.length) {
-    throw new Error("검증된(또는 재확인 필요로 표시된) 항목이 없어 후킹 문구를 생성할 수 없습니다. [3]검증 결과를 확인해주세요.");
+    throw new Error("찾은 자료가 모두 확인되지 않아 후킹 문구를 만들 수 없습니다. 주제를 조금 더 넓게 바꾸거나 다른 낱말로 바꿔서 다시 시도해 보세요.");
   }
 
   const itemSummaries = usable.map((r) => `- ${r.title}`).join("\n");

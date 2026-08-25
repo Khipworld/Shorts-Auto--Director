@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
+    "dev": "tsx watch --ignore \"**/vite.config.ts.timestamp-*\" --ignore \"**/.data/**\" --ignore \"**/rendered-output/**\" server.ts",
     "start": "tsx server.ts",
     "typecheck": "tsc --noEmit"
   },

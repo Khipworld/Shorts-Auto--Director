@@ -35,6 +35,36 @@ const scriptSchema = {
 // duration estimate for the subtitle-split stage that follows, not an exact spec.
 const KOREAN_CHARS_PER_SEC = 4.5;
 
+/**
+ * 모아온 자료가 전부 걸러졌을 때, 왜 그런지와 무엇을 하면 되는지 알려준다.
+ * 이유별로 세어서 알려줘야 사용자가 주제를 바꿀지 기다릴지 판단할 수 있다.
+ */
+function describeAllFilteredOut(
+  총건수: number,
+  걸러진항목: { title: string; decisionLog?: string[] }[]
+): string {
+  const 이유 = { 단일출처: 0, 상충: 0, 기타: 0 };
+  for (const item of 걸러진항목) {
+    const log = (item.decisionLog ?? []).join(" ");
+    if (log.includes("단일 출처")) 이유.단일출처 += 1;
+    else if (log.includes("상충")) 이유.상충 += 1;
+    else 이유.기타 += 1;
+  }
+
+  const 내역 = [
+    이유.단일출처 ? `${이유.단일출처}건은 뒷받침해 주는 다른 출처를 찾지 못했고` : "",
+    이유.상충 ? `${이유.상충}건은 출처끼리 내용이 어긋났으며` : "",
+    이유.기타 ? `${이유.기타}건은 그 밖의 이유로 걸러졌습니다` : "",
+  ].filter(Boolean).join(", ").replace(/,([^,]*)$/, "$1");
+
+  return (
+    `찾은 자료 ${총건수}건이 모두 확인되지 않아 대본을 만들 수 없습니다. ` +
+    (내역 ? `(${내역}) ` : "") +
+    "너무 최근 일이라 아직 여러 곳에서 다뤄지지 않았거나, 주제가 좁아 자료가 흩어져 있을 수 있습니다. " +
+    "주제를 조금 더 넓게 바꾸거나 다른 낱말로 바꿔서 다시 시도해 보세요."
+  );
+}
+
 export async function generateScript(
   groupId: string,
   platformId: string,
@@ -48,7 +78,9 @@ export async function generateScript(
   const usable = verification.results.filter((r) => r.finalStatus !== "unverified");
   const unverifiedItems = verification.results.filter((r) => r.finalStatus === "unverified");
   if (!usable.length) {
-    throw new Error("검증된(또는 재확인 필요로 표시된) 항목이 없어 대본을 생성할 수 없습니다. [3]검증 결과를 확인해주세요.");
+    // 화면에는 [3]검증 단계가 따로 없으므로(백엔드 작업이라 감춰 뒀다),
+    // "검증 결과를 확인하라"고만 하면 사용자가 할 수 있는 일이 없다. 이유와 다음 행동을 적는다.
+    throw new Error(describeAllFilteredOut(verification.results.length, unverifiedItems));
   }
 
   const [minDur, maxDur] = platformSpec.recommendedDurationSec;
@@ -63,7 +95,7 @@ export async function generateScript(
   const currentYear = new Date().getFullYear();
   const result = await callClaudeJSON(
     `당신은 ${scope.category.summary}을(를) 알기 쉽게 설명하는 쇼츠(숏폼) 영상 작가입니다. 아래 제공된 항목에 없는 내용은 절대 추가하지 마세요. 과장이나 확정되지 않은 수치는 쓰지 마세요. 신뢰감 있고 친근한 정보 전달 톤을 씁니다. 오늘은 ${currentYear}년입니다 — 연도를 언급할 때는 항목에 실제로 나온 연도만 그대로 쓰고, 확인 안 된 연도(특히 ${currentYear - 1}년 등 지난 연도)를 습관적으로 쓰지 마세요.`,
-    `"${scope.label}" 대상 쇼츠 영상 대본을 작성해주세요. ${hookInstruction}\n\n[사용 가능한 항목 — 이 내용만 근거로 쓸 것]\n${itemList}\n\n[요구사항]\n- 전체 나레이션은 한국어로 약 ${targetCharCount}자 내외(${targetDurationSec}초 분량)\n- 각 항목의 대상 조건과 신청 방법을 자연스럽게 풀어서 설명\n- 출처는 나레이션 안에 URL을 그대로 쓰지 말고 "정부 발표에 따르면" 같은 자연스러운 표현으로 처리`,
+    `"${scope.label}" 대상 쇼츠 영상 대본을 작성해주세요. ${hookInstruction}\n\n[사용 가능한 항목 — 이 내용만 근거로 쓸 것]\n${itemList}\n\n[요구사항]\n- 전체 나레이션은 한국어로 약 ${targetCharCount}자 내외(${targetDurationSec}초 분량)\n- ${scope.category.scriptGuidance}\n- 출처를 밝힐 때는 문장 맨 앞에 "${scope.category.attributionPhrase}," 처럼 한 번만 쓰세요. URL을 그대로 쓰지 말고, 같은 문장 끝에 "~전해졌습니다", "~알려졌습니다"를 덧붙여 이중으로 표현하지 마세요`,
     "generate_script",
     scriptSchema,
     { maxTokens: 1500 }
@@ -80,6 +112,10 @@ export async function generateScript(
     narration,
     estimatedDurationSec: Math.round(narration.length / KOREAN_CHARS_PER_SEC),
     sourceUrlsUsed: usable.map((r) => r.sourceUrl),
-    unverifiedLeakCheck: checkUnverifiedLeakage(narration, unverifiedItems.map((r) => r.title)),
+    unverifiedLeakCheck: checkUnverifiedLeakage(
+      narration,
+      unverifiedItems.map((r) => r.title),
+      usable.map((r) => r.title)
+    ),
   };
 }

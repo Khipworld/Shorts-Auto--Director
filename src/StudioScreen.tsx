@@ -10,6 +10,7 @@ import { makeScopeKey } from "./pipeline/0-category/scope";
 import { usePipeline } from "./usePipeline";
 import type { ProjectState, CardItem, AudioSettings, SubtitleLayout } from "./App";
 import type { SubtitleLine, LifecycleGroup } from "./types";
+import type { MusicItem } from "./pipeline/8-platform-output/musicLibrary.server";
 
 /** 서버가 내려주는 카테고리 목록 항목 (설정은 서버에만 두고 고르는 데 필요한 것만 받는다) */
 interface CategoryOption {
@@ -63,10 +64,112 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   const [audience, setAudience] = useState(""); // 공공정보에서만 쓰는 대상(임신부 등)
   // 상세 지시·소재는 평소 접어둔다 — 주제와 카테고리만으로도 만들 수 있어야 하기 때문.
   const [briefOpen, setBriefOpen] = useState(false);
-  const [layoutFineOpen, setLayoutFineOpen] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const imageFileRef = useRef<HTMLInputElement>(null);
+
+  // 내 음원 보관함 — 올린 파일은 서버(.data/music)에 남아 다음에 켰을 때도 그대로 있다.
+  const [musicItems, setMusicItems] = useState<MusicItem[]>([]);
+  const [musicBusy, setMusicBusy] = useState("");   // 올리는 중인 파일 이름
+  const [musicError, setMusicError] = useState("");
+  const [musicPlaying, setMusicPlaying] = useState(""); // 미리 듣는 중인 음원 id
+
   const pipeline = usePipeline(project, updateProject);
+
+  // 내 음원을 실제로 쓰는 조건: 켜져 있고 + 곡을 골랐을 때. 이때는 프리셋 BGM을 대신한다.
+  const useMyMusic = project.audio.customBgmEnabled && !!project.audio.customBgmId;
+
+  const loadMusic = async () => {
+    try {
+      const d = await getJson<{ items: MusicItem[] }>("/api/music/list");
+      setMusicItems(d.items);
+      return d.items;
+    } catch {
+      setMusicItems([]);
+      return [];
+    }
+  };
+  useEffect(() => { void loadMusic(); }, []);
+
+  // 보관함에서 고른 음원이 사라졌으면(다른 곳에서 지웠다든지) 선택을 비운다.
+  useEffect(() => {
+    if (!project.audio.customBgmId) return;
+    if (musicItems.some((m) => m.id === project.audio.customBgmId)) return;
+    if (!musicItems.length) return; // 아직 못 불러온 상태와 구분
+    updateAudio({ customBgmId: "", customBgmName: "" });
+  }, [musicItems]);
+
+  const uploadMusic = async (files: FileList | null) => {
+    const list = Array.from(files ?? []);
+    if (!list.length) return;
+    setMusicError("");
+    for (const file of list) {
+      setMusicBusy(file.name);
+      try {
+        const res = await fetch("/api/music/upload", {
+          method: "POST",
+          headers: {
+            "content-type": file.type || "application/octet-stream",
+            // 한글 파일명이 헤더에서 깨지지 않도록 encode해서 보낸다
+            "x-file-name": encodeURIComponent(file.name),
+          },
+          body: file,
+        });
+        // 서버가 JSON이 아닌 답(연결 끊김·오류 페이지 등)을 줄 수 있으므로 글로 먼저 받는다.
+        // 바로 .json()을 부르면 "Unexpected end of JSON input" 같은 알아볼 수 없는 오류가 뜬다.
+        const text = await res.text();
+        let data: { item?: MusicItem; error?: string } = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { /* JSON이 아니면 아래에서 처리 */ }
+        if (!data.item) {
+          if (data.error) throw new Error(data.error);
+          if (res.status === 413) throw new Error("파일이 너무 큽니다 (최대 80MB).");
+          if (!text) throw new Error("서버 응답이 끊겼습니다. 잠시 후 다시 시도해 주세요.");
+          throw new Error(`업로드 실패 (서버 응답 ${res.status})`);
+        }
+        setMusicItems((prev) => [data.item as MusicItem, ...prev]);
+        // 처음 올린 곡은 바로 쓸 수 있게 골라 둔다 — 한 번 더 누르게 하지 않기 위함.
+        updateAudio({
+          customBgmEnabled: true,
+          customBgmId: data.item.id,
+          customBgmName: data.item.name,
+        });
+      } catch (e) {
+        setMusicError(`${file.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setMusicBusy("");
+  };
+
+  const deleteMusic = async (m: MusicItem) => {
+    if (!window.confirm(`"${m.name}" 을(를) 보관함에서 지울까요? 되돌릴 수 없습니다.`)) return;
+    try {
+      const res = await fetch(`/api/music/${m.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await errorTextOf(res, "삭제하지 못했습니다."));
+      setMusicItems((prev) => prev.filter((x) => x.id !== m.id));
+      if (musicPlaying === m.id) setMusicPlaying("");
+      if (project.audio.customBgmId === m.id) updateAudio({ customBgmId: "", customBgmName: "" });
+    } catch (e) {
+      setMusicError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const renameMusic = async (m: MusicItem) => {
+    const next = window.prompt("새 이름", m.name);
+    if (next === null) return;
+    const name = next.trim();
+    if (!name || name === m.name) return;
+    try {
+      const res = await fetch(`/api/music/${m.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error(await errorTextOf(res, "이름을 바꾸지 못했습니다."));
+      setMusicItems((prev) => prev.map((x) => (x.id === m.id ? { ...x, name } : x)));
+      if (project.audio.customBgmId === m.id) updateAudio({ customBgmName: name });
+    } catch (e) {
+      setMusicError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   useEffect(() => {
     getJson<{ groups: LifecycleGroup[] }>("/api/pipeline/1/groups")
@@ -118,11 +221,23 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         platformId: project.platformId,
         topic: project.topic.trim(),
         categoryId: effectiveCategoryId,
+        categoryLabel: categories.find((c) => c.id === effectiveCategoryId)?.label ?? "",
         isSponsoredContent: project.brief.isSponsoredContent,
       },
       skipWarning
     );
   }
+
+  // 배너 문구는 카테고리마다 다르다("정부지원 안내" / "상품 정보" / "여행 정보"...).
+  // 미리보기와 실제 영상이 어긋나지 않도록 여기서 한 번만 만들어 양쪽에 같은 값을 넘긴다.
+  // 대상이 따로 있으면(임신부 등) 앞에 붙인다: "임신부 정부지원 안내".
+  const activeCategory = categories.find((c) => c.id === (project.categoryId || effectiveCategoryId));
+  const bannerText =
+    activeCategory
+      ? project.groupLabel && project.groupLabel !== activeCategory.label
+        ? `${project.groupLabel} ${activeCategory.bannerText}`
+        : activeCategory.bannerText
+      : project.groupLabel;
 
   const videoUrl = project.videoJobId ? `/api/video/download/${project.videoJobId}` : "";
   const timedLines = buildTimedLines(project.hookHeadline, project.cards, project.audio.speechSpeed);
@@ -176,7 +291,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
       // 후킹 → 번호 카드들 → CTA. 미리보기에 보이는 것과 같은 장면이 그대로 영상이 된다.
       // 배너·CTA 문구는 카테고리마다 다르다. 목록을 아직 못 받았으면 예전 문구를 그대로 쓴다.
       const cat = categories.find((c) => c.id === project.categoryId);
-      const badgeText = project.groupLabel ? `${project.groupLabel} ${cat ? "" : "지원"}`.trim() : cat?.label ?? "";
+      const badgeText = project.groupLabel || cat?.label || "";
 
       const slides = [
         { kind: "hook" as const, badge: badgeText, headline: project.hookHeadline },
@@ -188,7 +303,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         {
           kind: "cta" as const,
           badge: badgeText,
-          headline: cat?.ctaHeadline ?? "내 지원금 지금 확인하세요",
+          headline: cat?.ctaHeadline ?? "자세한 내용은 링크에서",
           buttonText: cat?.ctaButton ?? "프로필 링크에서 확인",
           footnote: `${new Date().getFullYear()}년 ${new Date().getMonth() + 1}월 기준`,
         },
@@ -200,13 +315,15 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         aspectRatio: format.ratio,
         voicePreset: project.audio.voicePreset,
         speechSpeed: project.audio.speechSpeed,
-        bgmTrack: project.audio.bgmEnabled ? project.audio.bgmPreset : "none",
-        bgmVolume: project.audio.bgmVolume,
+        bgmTrack: useMyMusic
+          ? `custom:${project.audio.customBgmId}`
+          : project.audio.bgmEnabled ? project.audio.bgmPreset : "none",
+        bgmVolume: useMyMusic ? project.audio.customBgmVolume : project.audio.bgmVolume,
         sfxTrack: project.audio.sfxEnabled ? project.audio.sfxPreset : "none",
         sfxVolume: project.audio.sfxVolume,
         subtitleLayout: project.subtitleLayout,
         withIntro: project.withIntro,
-        bannerText: cat?.bannerText ?? `${project.groupLabel} 지원정책 안내`,
+        bannerText,
         channelName: DEFAULT_BRAND.channelName,
         logoSrc: DEFAULT_BRAND.showLogo ? DEFAULT_BRAND.logoPath : undefined,
         highlightColor: brandTheme.highlight,
@@ -463,37 +580,26 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
 
           <div className="field-group">
             <div className="field-label">TTS 성우 <span className="pill pill-live">영상에 반영됨</span></div>
-            <select value={project.audio.voicePreset} onChange={(e) => updateAudio({ voicePreset: e.target.value })}>
-              {VOICE_PRESETS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-            </select>
-            <button
-              onClick={playVoiceSample}
-              disabled={samplePlaying}
-              style={{ width: "100%", marginTop: 6 }}
-              title="지금 고른 성우로 한 문장을 읽어봅니다"
-            >
-              {samplePlaying ? "…만드는 중" : "▶ 샘플 재생"}
-            </button>
+            <div className="inline-row">
+              <select value={project.audio.voicePreset} onChange={(e) => updateAudio({ voicePreset: e.target.value })}>
+                {VOICE_PRESETS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+              <button onClick={playVoiceSample} disabled={samplePlaying} title="지금 고른 성우로 한 문장을 읽어봅니다">
+                {samplePlaying ? "…" : "▶ 샘플"}
+              </button>
+            </div>
             {sampleError && <div className="error" style={{ marginTop: 6 }}>{sampleError}</div>}
             {sampleUrl && (
               <audio key={sampleUrl} src={sampleUrl} controls autoPlay style={{ width: "100%", marginTop: 8 }} />
             )}
-          </div>
-
-          <div className="field-group">
-            <div className="field-label">
-              말하기 속도 <span className="pill pill-live">영상 길이에 반영됨</span>
+            <div className="dial-group" style={{ marginTop: 8 }}>
+              <Dial
+                icon="⏩" name="속도" min={80} max={180} unit="%"
+                value={Math.round(project.audio.speechSpeed * 100)}
+                onChange={(v) => updateAudio({ speechSpeed: v / 100 })}
+              />
             </div>
-            <SliderRow
-              left="느리게" right="빠르게"
-              min={80} max={180}
-              value={Math.round(project.audio.speechSpeed * 100)}
-              onChange={(v) => updateAudio({ speechSpeed: v / 100 })}
-            />
-            <div className="item-meta">
-              현재 {project.audio.speechSpeed.toFixed(2)}배. 성우가 느리게 읽어서 기본값을 1.4로
-              두었습니다 — 낮추면 영상이 길어집니다.
-            </div>
+            <div className="item-meta">속도를 낮추면 성우가 천천히 읽어 영상이 길어집니다(기본 140%).</div>
           </div>
 
           <div className="field-group">
@@ -514,28 +620,80 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
             <label className="use-toggle">
               <input type="checkbox" checked={project.audio.customBgmEnabled}
                 onChange={(e) => updateAudio({ customBgmEnabled: e.target.checked })} />
-              <span className="field-label" style={{ margin: 0 }}>내 음원 파일 <span className="pill pill-todo">준비중</span></span>
+              <span className="field-label" style={{ margin: 0 }}>
+                내 음원 파일 <span className="pill pill-live">영상에 반영됨</span>
+              </span>
             </label>
             <div className="item-meta" style={{ marginBottom: 6 }}>
-              켜면 프리셋 BGM 대신 이 파일을 씁니다. 뮤직비디오도 여기에 넣습니다.
+              켜고 곡을 고르면 프리셋 BGM 대신 그 곡이 깔립니다. 올린 파일은 보관함에 남습니다.
             </div>
-            <button style={{ width: "100%" }} disabled={!project.audio.customBgmEnabled}
-              onClick={() => bgmFileRef.current?.click()}>📁 내 음원 파일 추가</button>
+
+            {/* 올리는 줄 — 버튼이 한 줄을 통째로 쓰지 않게 개수 표시와 나란히 둔다 */}
+            <div className="inline-row" style={{ marginBottom: 6 }}>
+              <button
+                style={{ flex: 1 }}
+                disabled={!project.audio.customBgmEnabled || !!musicBusy}
+                onClick={() => bgmFileRef.current?.click()}
+              >
+                {musicBusy ? `⏳ ${musicBusy} 올리는 중…` : "📁 음원 파일 올리기"}
+              </button>
+              <span className="lib-count">{musicItems.length}곡</span>
+            </div>
             <input
               ref={bgmFileRef}
               type="file"
               accept="audio/*"
+              multiple
               style={{ display: "none" }}
-              onChange={(e) => updateAudio({ customBgmName: e.target.files?.[0]?.name ?? "" })}
+              onChange={(e) => { void uploadMusic(e.target.files); e.target.value = ""; }}
             />
-            {project.audio.customBgmName && (
-              <div className="file-chip">
-                🎵 {project.audio.customBgmName}
-                <button className="ghost" style={{ padding: 0 }} onClick={() => updateAudio({ customBgmName: "" })}>✕</button>
+            {musicError && <div className="error" style={{ marginBottom: 6 }}>{musicError}</div>}
+
+            {/* 보관함 — 곡이 늘어도 패널이 계속 길어지지 않게 목록만 따로 스크롤한다 */}
+            {musicItems.length === 0 ? (
+              <div className="lib-empty">아직 올린 음원이 없습니다.</div>
+            ) : (
+              <div className={`music-lib${project.audio.customBgmEnabled ? "" : " disabled"}`}>
+                {musicItems.map((m) => {
+                  const picked = project.audio.customBgmId === m.id;
+                  return (
+                    <div className={`music-row${picked ? " picked" : ""}`} key={m.id}>
+                      <input
+                        type="radio"
+                        name="my-music"
+                        checked={picked}
+                        disabled={!project.audio.customBgmEnabled}
+                        onChange={() => updateAudio({ customBgmId: m.id, customBgmName: m.name })}
+                        title="이 곡을 배경음으로 쓰기"
+                      />
+                      <span className="music-name" title={m.name} onDoubleClick={() => void renameMusic(m)}>
+                        {m.name}
+                      </span>
+                      <span className="music-meta">
+                        {m.durationSeconds ? fmtClock(m.durationSeconds) : "—"} · {fmtMB(m.sizeBytes)}
+                      </span>
+                      <button className="icon-btn" title="들어보기"
+                        onClick={() => setMusicPlaying(musicPlaying === m.id ? "" : m.id)}>
+                        {musicPlaying === m.id ? "■" : "▶"}
+                      </button>
+                      <button className="icon-btn" title="이름 바꾸기" onClick={() => void renameMusic(m)}>✎</button>
+                      <button className="icon-btn danger" title="보관함에서 지우기"
+                        onClick={() => void deleteMusic(m)}>✕</button>
+                      {musicPlaying === m.id && (
+                        <audio className="music-player" src={`/api/music/file/${m.id}`} controls autoPlay />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            <VolumeSlider value={project.audio.customBgmVolume} disabled={!project.audio.customBgmEnabled}
+
+            <VolumeSlider value={project.audio.customBgmVolume}
+              disabled={!project.audio.customBgmEnabled || !project.audio.customBgmId}
               onChange={(v) => updateAudio({ customBgmVolume: v })} />
+            {useMyMusic && (
+              <div className="item-meta">🎵 {project.audio.customBgmName} 이(가) 깔립니다 (프리셋 BGM은 꺼짐).</div>
+            )}
           </div>
 
           <div className="field-group">
@@ -554,7 +712,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
 
           <div className="item-meta">
             BGM은 나레이션보다 작게 깔리고 끝에서 서서히 사라집니다. 효과음은 카드가 넘어갈 때마다
-            울립니다. "내 음원 파일"만 아직 실제 영상에 안 들어갑니다(업로드 기능 미구현).
+            울립니다. 내 음원을 고르면 프리셋 BGM 대신 그 곡이 쓰입니다.
           </div>
         </div>
 
@@ -562,7 +720,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         <div className="studio-center">
           <SlidePreview
             theme={theme}
-            groupLabel={project.groupLabel}
+            bannerText={bannerText}
             hookHeadline={project.hookHeadline}
             cards={project.cards}
             selected={selected}
@@ -643,21 +801,15 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
 
           <div className="field-group">
             <div className="field-label">자막 위치 <span className="pill pill-live">영상에 반영됨</span></div>
-            {/* 9분할로 한 번에 고르고, 미세 조정은 접어둔다 — 슬라이더 3개를 매번 만지는 것보다 빠르다 */}
-            <PositionGrid layout={project.subtitleLayout} onPick={(v, h) => updateLayout({ vertical: v, horizontal: h })} />
-            <button className="fold-toggle" onClick={() => setLayoutFineOpen((v) => !v)}>
-              {layoutFineOpen ? "▾" : "▸"} 미세 조정
-            </button>
-            {layoutFineOpen && (
-              <div className="fine-tune">
-                <SliderRow left="▲ 위" right="아래 ▼" min={10} max={90}
-                  value={project.subtitleLayout.vertical} onChange={(v) => updateLayout({ vertical: v })} />
-                <SliderRow left="◀ 왼쪽" right="오른쪽 ▶" min={0} max={100}
-                  value={project.subtitleLayout.horizontal} onChange={(v) => updateLayout({ horizontal: v })} />
-                <SliderRow left="여백 좁게" right="넓게" min={2} max={20}
-                  value={project.subtitleLayout.margin} onChange={(v) => updateLayout({ margin: v })} />
-              </div>
-            )}
+            {/* 슬라이더 3개를 한 줄씩 — 아이콘·이름·눈금·현재값이 한 줄에 들어가 세로 공간을 아낀다 */}
+            <div className="dial-group">
+              <Dial icon="↕" name="상하" min={10} max={90} unit="%"
+                value={project.subtitleLayout.vertical} onChange={(v) => updateLayout({ vertical: v })} />
+              <Dial icon="↔" name="좌우" min={0} max={100} unit="%"
+                value={project.subtitleLayout.horizontal} onChange={(v) => updateLayout({ horizontal: v })} />
+              <Dial icon="⇥⇤" name="여백" min={2} max={20} unit="%"
+                value={project.subtitleLayout.margin} onChange={(v) => updateLayout({ margin: v })} />
+            </div>
             <div className="item-meta">
               위 미리보기와 실제 영상에 같은 계산식으로 적용됩니다. 글자가 길어도 화면 밖으로
               나가지 않게 자동으로 안쪽에 묶입니다.
@@ -828,8 +980,11 @@ function VideoLibrary({ reloadKey }: { reloadKey: string }) {
       {error && <div className="error">{error}</div>}
       {!error && !videos.length && <div className="empty">아직 만든 영상이 없습니다.</div>}
 
+      {/* 세로로 쌓으면 항목마다 오른쪽이 통째로 비어 목록이 한없이 길어진다.
+          들어가는 만큼 가로로 채우고, 재생 중인 항목만 한 줄을 다 쓴다. */}
+      <div className="video-grid">
       {videos.map((v) => (
-        <div className="item" key={v.id}>
+        <div className={`item video-item${playing === v.id ? " playing" : ""}`} key={v.id}>
           <div className="item-title">
             {v.groupLabel && <span className="badge unchanged">{v.groupLabel}</span>}
             {v.title}
@@ -852,11 +1007,12 @@ function VideoLibrary({ reloadKey }: { reloadKey: string }) {
               src={v.downloadUrl}
               controls
               autoPlay
-              style={{ width: "100%", maxWidth: 260, display: "block", marginTop: 10, borderRadius: 8, background: "#000" }}
+              style={{ width: "100%", maxWidth: 300, display: "block", marginTop: 10, borderRadius: 8, background: "#000" }}
             />
           )}
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -937,60 +1093,71 @@ function AdReferencePanel({ report }: { report?: ProjectState["adReferences"] })
   );
 }
 
+/** 실패한 응답에서 사람이 읽을 수 있는 이유를 뽑는다. JSON이 아니어도 터지지 않는다. */
+async function errorTextOf(res: Response, fallback: string): Promise<string> {
+  try {
+    const text = await res.text();
+    if (!text) return fallback;
+    try { return (JSON.parse(text) as { error?: string }).error ?? fallback; } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
+}
+
+/** 초 → 3:21 형태. 곡 길이를 짧게 보여줄 때 쓴다. */
+function fmtClock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const r = Math.round(sec % 60);
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+/** 바이트 → 4.2MB */
+function fmtMB(bytes: number): string {
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
+}
+
 function VolumeSlider({ value, onChange, disabled }: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
-  return <SliderRow left="0%" right="100%" min={0} max={100} value={value} onChange={onChange} disabled={disabled} />;
+  return <Dial icon="🔊" name="음량" min={0} max={100} unit="%" value={value} onChange={onChange} disabled={disabled} />;
 }
 
 /**
- * 자막 위치를 9칸으로 한 번에 고른다.
- * 슬라이더 3개를 매번 조절하는 것보다 빠르고, 어디에 놓이는지 눈으로 보인다.
- * 세밀한 조정은 아래 "미세 조정"에서 한다.
+ * 한 줄짜리 조절기 — 아이콘·이름·눈금·현재값을 한 줄에 담는다.
+ *
+ * 예전에는 슬라이더 양옆에 "0% ... 100%" 같은 안내 글씨를 두어 줄마다 자리를 많이 먹었다.
+ * 지금은 지나간 구간이 색으로 차오르고 현재값이 오른쪽에 숫자로 뜨므로,
+ * 양끝 안내 없이도 상태를 바로 알 수 있고 세로 공간도 덜 쓴다.
  */
-function PositionGrid({ layout, onPick }: { layout: SubtitleLayout; onPick: (v: number, h: number) => void }) {
-  const V = [22, 50, 78];
-  const H = [0, 50, 100];
-  const near = (a: number, b: number) => Math.abs(a - b) < 9;
-  return (
-    <div className="pos-grid">
-      {V.map((v) =>
-        H.map((h) => {
-          const active = near(layout.vertical, v) && near(layout.horizontal, h);
-          return (
-            <button
-              key={`${v}-${h}`}
-              className={`pos-cell${active ? " active" : ""}`}
-              onClick={() => onPick(v, h)}
-              title={`세로 ${v}% · 가로 ${h}%`}
-            >
-              <span />
-            </button>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function SliderRow({
-  left, right, min, max, value, onChange, disabled,
+function Dial({
+  icon, name, min, max, unit, value, onChange, disabled,
 }: {
-  left: string; right: string; min: number; max: number; value: number; onChange: (v: number) => void; disabled?: boolean;
+  icon: string; name: string; min: number; max: number; unit: string;
+  value: number; onChange: (v: number) => void; disabled?: boolean;
 }) {
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   return (
-    <div className={`slider-row${disabled ? " disabled" : ""}`}>
-      <span>{left}</span>
-      <input type="range" min={min} max={max} value={value} disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))} />
-      <span>{right}</span>
+    <div className={`dial${disabled ? " disabled" : ""}`}>
+      <span className="dial-icon" aria-hidden>{icon}</span>
+      <span className="dial-name">{name}</span>
+      <input
+        className="dial-range"
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ ["--fill" as string]: `${pct}%` }}
+      />
+      <span className="dial-value">{value}{unit}</span>
     </div>
   );
 }
 
 function SlidePreview({
-  theme, groupLabel, hookHeadline, cards, selected, layout, ratio,
+  theme, bannerText, hookHeadline, cards, selected, layout, ratio,
 }: {
   theme: ReturnType<typeof getCardTheme>;
-  groupLabel: string;
+  bannerText: string;
   hookHeadline: string;
   cards: CardItem[];
   selected: number;
@@ -1023,7 +1190,7 @@ function SlidePreview({
         background: `linear-gradient(160deg, ${theme.gradientFrom}, ${theme.gradientTo})`,
       }}
     >
-      <div className="phone-banner">{groupLabel} 지원정책 안내</div>
+      <div className="phone-banner">{bannerText}</div>
 
       {!card ? (
         <div style={blockStyle}>

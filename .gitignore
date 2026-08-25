@@ -6,3 +6,4 @@ dist/
 *.log
 rendered-output/
 public/brand/logo-crop.png
+vite.config.ts.timestamp-*

@@ -11,35 +11,73 @@ export interface TrustTierDef {
   domainPatterns: RegExp[];
 }
 
+// 한국 도메인 관례 참고:
+//   .go.kr  정부·지자체        .re.kr  정부출연연구기관     .ac.kr  대학·학술
+//   .or.kr  비영리법인 — 한국은행·건보공단·관광공사처럼 공공기관도 여기를 쓰고,
+//           일반 협회·단체도 함께 쓴다. 그래서 이름이 확인된 기관만 1등급으로 올리고
+//           나머지 .or.kr 은 3등급으로 둔다.
+const PUBLIC_INSTITUTIONS = [
+  "bok.or.kr",        // 한국은행
+  "nhis.or.kr",       // 국민건강보험공단
+  "nps.or.kr",        // 국민연금공단
+  "kcomwel.or.kr",    // 근로복지공단
+  "visitkorea.or.kr", // 한국관광공사
+  "koreanbar.or.kr",  // 대한변호사협회
+  "kma.or.kr",        // 대한의사협회
+  "kftc.or.kr",       // 금융결제원
+  "kdi.re.kr",        // 한국개발연구원
+  "kihasa.re.kr",     // 한국보건사회연구원
+];
+
+const PRESS_DOMAINS = [
+  "yna.co.kr", "yonhapnews.co.kr", "newsis.com", "news1.kr",
+  "chosun.com", "joongang.co.kr", "donga.com", "hani.co.kr", "khan.co.kr",
+  "seoul.co.kr", "hankookilbo.com", "kmib.co.kr", "segye.com", "munhwa.com",
+  "mk.co.kr", "hankyung.com", "edaily.co.kr", "mt.co.kr", "fnnews.com",
+  "kbs.co.kr", "mbc.co.kr", "sbs.co.kr", "ytn.co.kr", "jtbc.co.kr", "ebs.co.kr",
+  "etnews.com", "zdnet.co.kr", "bloter.net", "kormedi.com", "docdocdoc.co.kr",
+];
+
+/** 도메인 목록을 "그 도메인 자신 또는 하위 도메인" 규칙으로 바꾼다. */
+function hostPatterns(domains: string[]): RegExp[] {
+  return domains.map((d) => new RegExp(`(^|\\.)${d.replace(/\./g, "\\.")}$`, "i"));
+}
+
 export const TRUST_TIERS: TrustTierDef[] = [
   {
     tier: "official",
     label: "공식기관 (1등급)",
-    description: "정부/지자체/공공기관 등 공식 도메인",
-    domainPatterns: [/\.go\.kr$/i, /\.go\.kr\//i, /\.korea\.kr$/i, /gov$/i],
+    description: "정부·지자체·공공기관·국책연구기관·대학 등 공식 도메인",
+    domainPatterns: [
+      /(^|\.)go\.kr$/i,        // 정부·지자체
+      /(^|\.)korea\.kr$/i,     // 정책브리핑
+      /(^|\.)re\.kr$/i,        // 정부출연연구기관
+      /(^|\.)ac\.kr$/i,        // 대학·학술
+      /(^|\.)gov$/i,           // 해외 정부 (.gov)
+      /(^|\.)gov\.[a-z]{2}$/i, // 해외 정부 (.gov.uk 등)
+      /(^|\.)edu$/i,           // 해외 대학
+      ...hostPatterns(PUBLIC_INSTITUTIONS),
+    ],
   },
   {
     tier: "press",
     label: "언론사 (2등급)",
     description: "등록된 뉴스/언론사 도메인",
     domainPatterns: [
-      /\.co\.kr\/.*news/i,
-      /yna\.co\.kr$/i,
-      /yonhapnews\.co\.kr$/i,
-      /chosun\.com$/i,
-      /joongang\.co\.kr$/i,
-      /hani\.co\.kr$/i,
-      /khan\.co\.kr$/i,
-      /mbc\.co\.kr$/i,
-      /kbs\.co\.kr$/i,
-      /sbs\.co\.kr$/i,
+      ...hostPatterns(PRESS_DOMAINS),
+      /(^|\.)news\./i,        // news.xxx.com 형태
+      /\.co\.kr\/.*news/i,     // 언론 섹션 경로
     ],
   },
   {
     tier: "verified_platform",
     label: "출처 분명한 플랫폼 (3등급)",
-    description: "네이버 등 출처·작성자가 분명히 확인되는 대형 플랫폼",
-    domainPatterns: [/naver\.com$/i, /wikipedia\.org$/i],
+    description: "네이버·위키백과 등 출처·작성자가 확인되는 대형 플랫폼과, 기관 도메인(.or.kr)",
+    domainPatterns: [
+      /(^|\.)naver\.com$/i,
+      /(^|\.)wikipedia\.org$/i,
+      /(^|\.)or\.kr$/i,        // 비영리법인·협회 — 개인 블로그보다는 분명한 출처
+    ],
   },
   {
     tier: "unverified",

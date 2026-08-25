@@ -17,6 +17,7 @@ import { collectAdReferences } from "./src/pipeline/5-hook-seo/adReferences.serv
 import { generateScript } from "./src/pipeline/6-script/generateScript.server";
 import { packageOutput } from "./src/pipeline/8-platform-output/packageOutput.server";
 import { registerVideoRenderRoutes } from "./src/pipeline/8-platform-output/videoRender.server";
+import { registerMusicLibraryRoutes } from "./src/pipeline/8-platform-output/musicLibrary.server";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -35,6 +36,7 @@ registerWorkLogRoutes(app);
 
 // 실제 mp4 렌더링 (TTS + ffmpeg), 비동기 작업 큐
 registerVideoRenderRoutes(app);
+registerMusicLibraryRoutes(app);
 
 // [1] 자료 수집 — 생애주기 그룹 목록 (정보/시사성 > 정부지원사업·정책 안내 1차 카테고리)
 app.get("/api/pipeline/1/groups", (_req, res) => {
