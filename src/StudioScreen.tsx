@@ -61,6 +61,11 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
   // 사용자 지시: 자동 인식 대신 선택 상자로 직접 고른다. 주제를 치면 후보를 제안만 한다.
   const [categoryId, setCategoryId] = useState("");
   const [audience, setAudience] = useState(""); // 공공정보에서만 쓰는 대상(임신부 등)
+  // 상세 지시·소재는 평소 접어둔다 — 주제와 카테고리만으로도 만들 수 있어야 하기 때문.
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [layoutFineOpen, setLayoutFineOpen] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
+  const imageFileRef = useRef<HTMLInputElement>(null);
   const pipeline = usePipeline(project, updateProject);
 
   useEffect(() => {
@@ -113,7 +118,7 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         platformId: project.platformId,
         topic: project.topic.trim(),
         categoryId: effectiveCategoryId,
-        isSponsoredContent: project.isSponsoredContent === true,
+        isSponsoredContent: project.brief.isSponsoredContent,
       },
       skipWarning
     );
@@ -126,6 +131,17 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
 
   function update(patch: Partial<ProjectState>) {
     updateProject((prev) => ({ ...prev, ...patch }));
+  }
+  function updateBrief(patch: Partial<ProjectState["brief"]>) {
+    updateProject((prev) => ({ ...prev, brief: { ...prev.brief, ...patch } }));
+  }
+  function addMaterial(kind: "url" | "image" | "audio", value: string) {
+    const v = value.trim();
+    if (!v) return;
+    updateProject((prev) => ({ ...prev, materials: [...prev.materials, { kind, value: v }] }));
+  }
+  function removeMaterial(idx: number) {
+    updateProject((prev) => ({ ...prev, materials: prev.materials.filter((_, i) => i !== idx) }));
   }
   function updateAudio(patch: Partial<AudioSettings>) {
     updateProject((prev) => ({ ...prev, audio: { ...prev.audio, ...patch } }));
@@ -184,9 +200,9 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
         aspectRatio: format.ratio,
         voicePreset: project.audio.voicePreset,
         speechSpeed: project.audio.speechSpeed,
-        bgmTrack: project.audio.bgmPreset,
+        bgmTrack: project.audio.bgmEnabled ? project.audio.bgmPreset : "none",
         bgmVolume: project.audio.bgmVolume,
-        sfxTrack: project.audio.sfxPreset,
+        sfxTrack: project.audio.sfxEnabled ? project.audio.sfxPreset : "none",
         sfxVolume: project.audio.sfxVolume,
         subtitleLayout: project.subtitleLayout,
         withIntro: project.withIntro,
@@ -314,14 +330,106 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
           </div>
         )}
 
-        <label className="item-meta" style={{ display: "block", marginTop: 10 }}>
+        {/* 소재 — URL·사진·음악을 주제와 함께 넣는다 */}
+        <div className="material-row">
           <input
-            type="checkbox"
-            checked={project.isSponsoredContent === true}
-            onChange={(e) => update({ isSponsoredContent: e.target.checked })}
-          />{" "}
-          이 콘텐츠는 정부/기관의 지원(협찬)을 받아 제작됨
-        </label>
+            type="text"
+            value={urlInput}
+            placeholder="🔗 참고할 URL을 붙여넣으세요 (상품 페이지, 기사 등)"
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { addMaterial("url", urlInput); setUrlInput(""); } }}
+          />
+          <button onClick={() => { addMaterial("url", urlInput); setUrlInput(""); }} disabled={!urlInput.trim()}>추가</button>
+          <button onClick={() => imageFileRef.current?.click()} title="영상에 넣을 사진">🖼 사진</button>
+          <input
+            ref={imageFileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              Array.from(e.target.files ?? []).forEach((f) => addMaterial("image", f.name));
+              e.target.value = "";
+            }}
+          />
+        </div>
+
+        {project.materials.length > 0 && (
+          <div className="chips" style={{ marginTop: 8 }}>
+            {project.materials.map((m, i) => (
+              <span className="chip" key={i}>
+                {m.kind === "url" ? "🔗" : m.kind === "image" ? "🖼" : "🎵"}{" "}
+                {m.value.length > 42 ? m.value.slice(0, 40) + "…" : m.value}
+                <button onClick={() => removeMaterial(i)} title="빼기">✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="item-meta" style={{ marginTop: 6 }}>
+          소재는 아직 영상에 반영되지 않습니다 — 넣어두면 다음 작업에서 씁니다.
+          <b> 음악 파일은 왼쪽 "내 음원 파일"에서 넣습니다.</b>
+        </div>
+
+        {/* 상세 지시 — 평소엔 접혀 있고 필요할 때만 편다 */}
+        <button className="fold-toggle" onClick={() => setBriefOpen((v) => !v)}>
+          {briefOpen ? "▾" : "▸"} 상세 지시 {briefOpen ? "접기" : "펼치기"}
+          <span className="item-meta" style={{ marginLeft: 6 }}>비워두면 알아서 정합니다</span>
+        </button>
+
+        {briefOpen && (
+          <div className="brief-grid">
+            <label>
+              <span>누구에게</span>
+              <input type="text" value={project.brief.audience} placeholder="예: 20대 사회초년생"
+                onChange={(e) => updateBrief({ audience: e.target.value })} />
+            </label>
+            <label>
+              <span>원하는 행동</span>
+              <select value={project.brief.goal} onChange={(e) => updateBrief({ goal: e.target.value })}>
+                <option value="">자동</option>
+                <option value="inform">정보 전달</option>
+                <option value="visit">방문 유도</option>
+                <option value="buy">구매 유도</option>
+                <option value="subscribe">구독 유도</option>
+              </select>
+            </label>
+            <label>
+              <span>톤</span>
+              <select value={project.brief.tone} onChange={(e) => updateBrief({ tone: e.target.value })}>
+                <option value="">자동</option>
+                <option value="informative">정보전달</option>
+                <option value="friendly">친근</option>
+                <option value="urgent">긴박</option>
+                <option value="emotional">감성</option>
+              </select>
+            </label>
+            <label>
+              <span>길이 목표</span>
+              <select value={String(project.brief.targetSeconds)} onChange={(e) => updateBrief({ targetSeconds: Number(e.target.value) })}>
+                <option value="0">자동 (20~35초)</option>
+                <option value="15">15초</option>
+                <option value="30">30초</option>
+                <option value="60">60초</option>
+                <option value="-1">음악 길이에 맞춤</option>
+              </select>
+            </label>
+            <label className="wide">
+              <span>꼭 넣을 내용</span>
+              <input type="text" value={project.brief.mustInclude} placeholder="반드시 담아야 할 문구·수치"
+                onChange={(e) => updateBrief({ mustInclude: e.target.value })} />
+            </label>
+            <label className="wide">
+              <span>빼야 할 내용</span>
+              <input type="text" value={project.brief.mustAvoid} placeholder="언급하면 안 되는 것"
+                onChange={(e) => updateBrief({ mustAvoid: e.target.value })} />
+            </label>
+            <label className="wide check">
+              <input type="checkbox" checked={project.brief.isSponsoredContent}
+                onChange={(e) => updateBrief({ isSponsoredContent: e.target.checked })} />
+              <span>협찬·지원을 받아 제작된 콘텐츠</span>
+            </label>
+          </div>
+        )}
 
         {pipeline.running && <div className="notice" style={{ marginTop: 10 }}>⏳ {pipeline.statusText}</div>}
         {pipeline.error && <div className="error" style={{ marginTop: 8 }}>{pipeline.error}</div>}
@@ -389,16 +497,30 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
           </div>
 
           <div className="field-group">
-            <div className="field-label">BGM 프리셋 <span className="pill pill-live">영상에 반영됨</span></div>
-            <select value={project.audio.bgmPreset} onChange={(e) => updateAudio({ bgmPreset: e.target.value })}>
-              {BGM_PRESETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            <label className="use-toggle">
+              <input type="checkbox" checked={project.audio.bgmEnabled}
+                onChange={(e) => updateAudio({ bgmEnabled: e.target.checked })} />
+              <span className="field-label" style={{ margin: 0 }}>BGM 프리셋 <span className="pill pill-live">영상에 반영됨</span></span>
+            </label>
+            <select value={project.audio.bgmPreset} disabled={!project.audio.bgmEnabled}
+              onChange={(e) => updateAudio({ bgmPreset: e.target.value })}>
+              {BGM_PRESETS.filter((b) => b.id !== "none").map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
             </select>
-            <VolumeSlider value={project.audio.bgmVolume} onChange={(v) => updateAudio({ bgmVolume: v })} />
+            <VolumeSlider value={project.audio.bgmVolume} disabled={!project.audio.bgmEnabled}
+              onChange={(v) => updateAudio({ bgmVolume: v })} />
           </div>
 
           <div className="field-group">
-            <div className="field-label">내 음원 파일 <span className="pill pill-todo">준비중</span></div>
-            <button style={{ width: "100%" }} onClick={() => bgmFileRef.current?.click()}>📁 내 음원 파일 추가</button>
+            <label className="use-toggle">
+              <input type="checkbox" checked={project.audio.customBgmEnabled}
+                onChange={(e) => updateAudio({ customBgmEnabled: e.target.checked })} />
+              <span className="field-label" style={{ margin: 0 }}>내 음원 파일 <span className="pill pill-todo">준비중</span></span>
+            </label>
+            <div className="item-meta" style={{ marginBottom: 6 }}>
+              켜면 프리셋 BGM 대신 이 파일을 씁니다. 뮤직비디오도 여기에 넣습니다.
+            </div>
+            <button style={{ width: "100%" }} disabled={!project.audio.customBgmEnabled}
+              onClick={() => bgmFileRef.current?.click()}>📁 내 음원 파일 추가</button>
             <input
               ref={bgmFileRef}
               type="file"
@@ -412,15 +534,22 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
                 <button className="ghost" style={{ padding: 0 }} onClick={() => updateAudio({ customBgmName: "" })}>✕</button>
               </div>
             )}
-            <VolumeSlider value={project.audio.customBgmVolume} onChange={(v) => updateAudio({ customBgmVolume: v })} />
+            <VolumeSlider value={project.audio.customBgmVolume} disabled={!project.audio.customBgmEnabled}
+              onChange={(v) => updateAudio({ customBgmVolume: v })} />
           </div>
 
           <div className="field-group">
-            <div className="field-label">SFX 전환 효과음 <span className="pill pill-live">영상에 반영됨</span></div>
-            <select value={project.audio.sfxPreset} onChange={(e) => updateAudio({ sfxPreset: e.target.value })}>
-              {SFX_PRESETS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            <label className="use-toggle">
+              <input type="checkbox" checked={project.audio.sfxEnabled}
+                onChange={(e) => updateAudio({ sfxEnabled: e.target.checked })} />
+              <span className="field-label" style={{ margin: 0 }}>SFX 전환 효과음 <span className="pill pill-live">영상에 반영됨</span></span>
+            </label>
+            <select value={project.audio.sfxPreset} disabled={!project.audio.sfxEnabled}
+              onChange={(e) => updateAudio({ sfxPreset: e.target.value })}>
+              {SFX_PRESETS.filter((x) => x.id !== "none").map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
             </select>
-            <VolumeSlider value={project.audio.sfxVolume} onChange={(v) => updateAudio({ sfxVolume: v })} />
+            <VolumeSlider value={project.audio.sfxVolume} disabled={!project.audio.sfxEnabled}
+              onChange={(v) => updateAudio({ sfxVolume: v })} />
           </div>
 
           <div className="item-meta">
@@ -513,25 +642,22 @@ export default function StudioScreen({ project, updateProject, onReset, onOpenWo
           </div>
 
           <div className="field-group">
-            <div className="field-label">자막 위치 조정 <span className="pill pill-live">영상에 반영됨</span></div>
-            <SliderRow
-              left="▲ 위" right="아래 ▼"
-              min={10} max={90}
-              value={project.subtitleLayout.vertical}
-              onChange={(v) => updateLayout({ vertical: v })}
-            />
-            <SliderRow
-              left="◀ 왼쪽" right="오른쪽 ▶"
-              min={0} max={100}
-              value={project.subtitleLayout.horizontal}
-              onChange={(v) => updateLayout({ horizontal: v })}
-            />
-            <SliderRow
-              left="여백 좁게" right="넓게"
-              min={2} max={20}
-              value={project.subtitleLayout.margin}
-              onChange={(v) => updateLayout({ margin: v })}
-            />
+            <div className="field-label">자막 위치 <span className="pill pill-live">영상에 반영됨</span></div>
+            {/* 9분할로 한 번에 고르고, 미세 조정은 접어둔다 — 슬라이더 3개를 매번 만지는 것보다 빠르다 */}
+            <PositionGrid layout={project.subtitleLayout} onPick={(v, h) => updateLayout({ vertical: v, horizontal: h })} />
+            <button className="fold-toggle" onClick={() => setLayoutFineOpen((v) => !v)}>
+              {layoutFineOpen ? "▾" : "▸"} 미세 조정
+            </button>
+            {layoutFineOpen && (
+              <div className="fine-tune">
+                <SliderRow left="▲ 위" right="아래 ▼" min={10} max={90}
+                  value={project.subtitleLayout.vertical} onChange={(v) => updateLayout({ vertical: v })} />
+                <SliderRow left="◀ 왼쪽" right="오른쪽 ▶" min={0} max={100}
+                  value={project.subtitleLayout.horizontal} onChange={(v) => updateLayout({ horizontal: v })} />
+                <SliderRow left="여백 좁게" right="넓게" min={2} max={20}
+                  value={project.subtitleLayout.margin} onChange={(v) => updateLayout({ margin: v })} />
+              </div>
+            )}
             <div className="item-meta">
               위 미리보기와 실제 영상에 같은 계산식으로 적용됩니다. 글자가 길어도 화면 밖으로
               나가지 않게 자동으로 안쪽에 묶입니다.
@@ -811,19 +937,50 @@ function AdReferencePanel({ report }: { report?: ProjectState["adReferences"] })
   );
 }
 
-function VolumeSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return <SliderRow left="0%" right="100%" min={0} max={100} value={value} onChange={onChange} />;
+function VolumeSlider({ value, onChange, disabled }: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  return <SliderRow left="0%" right="100%" min={0} max={100} value={value} onChange={onChange} disabled={disabled} />;
+}
+
+/**
+ * 자막 위치를 9칸으로 한 번에 고른다.
+ * 슬라이더 3개를 매번 조절하는 것보다 빠르고, 어디에 놓이는지 눈으로 보인다.
+ * 세밀한 조정은 아래 "미세 조정"에서 한다.
+ */
+function PositionGrid({ layout, onPick }: { layout: SubtitleLayout; onPick: (v: number, h: number) => void }) {
+  const V = [22, 50, 78];
+  const H = [0, 50, 100];
+  const near = (a: number, b: number) => Math.abs(a - b) < 9;
+  return (
+    <div className="pos-grid">
+      {V.map((v) =>
+        H.map((h) => {
+          const active = near(layout.vertical, v) && near(layout.horizontal, h);
+          return (
+            <button
+              key={`${v}-${h}`}
+              className={`pos-cell${active ? " active" : ""}`}
+              onClick={() => onPick(v, h)}
+              title={`세로 ${v}% · 가로 ${h}%`}
+            >
+              <span />
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
 function SliderRow({
-  left, right, min, max, value, onChange,
+  left, right, min, max, value, onChange, disabled,
 }: {
-  left: string; right: string; min: number; max: number; value: number; onChange: (v: number) => void;
+  left: string; right: string; min: number; max: number; value: number; onChange: (v: number) => void; disabled?: boolean;
 }) {
   return (
-    <div className="slider-row">
+    <div className={`slider-row${disabled ? " disabled" : ""}`}>
       <span>{left}</span>
-      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" min={min} max={max} value={value} disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))} />
       <span>{right}</span>
     </div>
   );

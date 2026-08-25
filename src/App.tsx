@@ -31,12 +31,42 @@ export interface SubtitleLayout {
 export interface AudioSettings {
   voicePreset: string;
   speechSpeed: number; // 나레이션 말하기 속도 (0.8~1.8). 영상 길이를 좌우하는 값.
+
+  // 각 음향은 켜고 끌 수 있다. 프리셋에 "사용 안 함"을 넣는 것보다 체크박스가 분명하다.
+  bgmEnabled: boolean;
   bgmPreset: string;
   bgmVolume: number;
-  customBgmName: string; // 업로드한 파일명 (파일 자체를 서버로 보내는 기능은 아직 없음)
+
+  // 내 음원 — 켜면 프리셋 BGM 대신 이 파일을 쓴다.
+  // 뮤직비디오 모드도 여기로 들어온다(음악이 타임라인을 결정하는 방식).
+  customBgmEnabled: boolean;
+  customBgmName: string;
   customBgmVolume: number;
+
+  sfxEnabled: boolean;
   sfxPreset: string;
   sfxVolume: number;
+}
+
+/**
+ * 주제 외에 사용자가 더 정확히 지시하고 싶을 때 쓰는 항목들.
+ * 사용자 지시(2026-08-26): 평소엔 접혀 있다가 필요할 때만 펼쳐 쓴다.
+ * 비워두면 지금처럼 AI가 알아서 정한다.
+ */
+export interface BriefSettings {
+  audience: string;      // 누구에게 (예: 20대 사회초년생)
+  goal: string;          // 원하는 행동 (정보 전달 / 구매 / 방문 / 구독)
+  tone: string;          // 톤 (정보전달 / 친근 / 긴박 / 감성)
+  targetSeconds: number; // 길이 목표(초). 0이면 자동
+  mustInclude: string;   // 꼭 넣을 내용
+  mustAvoid: string;     // 빼야 할 내용
+  isSponsoredContent: boolean; // 협찬 여부 — 여기로 옮김
+}
+
+/** 주제와 함께 넣는 소재. URL·사진·음악 파일을 받는다. */
+export interface SourceMaterial {
+  kind: "url" | "image" | "audio";
+  value: string; // URL이면 주소, 파일이면 파일명
 }
 
 // 이 화면 세션에서 진행 중인 하나의 쇼츠 작업물 상태.
@@ -54,7 +84,8 @@ export interface ProjectState {
   platformId: string;
   topic: string; // 사용자가 직접 입력한 주제 (비어 있으면 그룹 전체를 주제로 봄)
   categoryId: string; // 콘텐츠 종류 (public_info / product / place / knowledge / trend / etc)
-  isSponsoredContent?: boolean;
+  brief: BriefSettings;        // 접어둔 상세 지시 항목
+  materials: SourceMaterial[]; // 함께 넣은 소재 (URL·사진·음악)
 
   formatId: string;
   audio: AudioSettings;
@@ -98,11 +129,23 @@ export function emptyProject(opts: StartOptions): ProjectState {
     platformId: opts.platformId,
     topic: opts.topic,
     categoryId: opts.categoryId ?? "",
-    isSponsoredContent: opts.isSponsoredContent,
+    brief: {
+      audience: "",
+      goal: "",
+      tone: "",
+      targetSeconds: 0,
+      mustInclude: "",
+      mustAvoid: "",
+      isSponsoredContent: opts.isSponsoredContent,
+    },
+    materials: [],
 
     formatId: "shorts_9_16",
     audio: {
       voicePreset: "news-anchor",
+      bgmEnabled: true,
+      customBgmEnabled: false,
+      sfxEnabled: true,
       // 실측 기준값: 1.0이면 참고 영상의 2배가 넘게 길어져서, 최적 길이(20~35초)에
       // 들어가도록 기본을 1.4로 둔다.
       speechSpeed: 1.4,

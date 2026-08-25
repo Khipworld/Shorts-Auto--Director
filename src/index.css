@@ -284,3 +284,55 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border: 1px solid #0f172a; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
 .wl-search input { flex: 1; background: none; border: none; color: #e2e8f0; font-size: 12px; padding: 0; }
 .wl-search input:focus { outline: none; }
+
+/* ───────── 소재 입력 (URL·사진) ───────── */
+.material-row { display: flex; gap: 6px; align-items: center; margin-top: 10px; }
+.material-row input[type=text] { flex: 1; min-width: 0; }
+.material-row button { white-space: nowrap; }
+
+/* ───────── 접이식 영역 ───────── */
+.fold-toggle {
+  border: none; background: none; color: var(--accent, #2563eb); cursor: pointer;
+  font-size: 12.5px; font-weight: 600; padding: 8px 0 4px; margin-top: 8px;
+  display: flex; align-items: center; gap: 4px;
+}
+.fold-toggle:hover { text-decoration: underline; }
+
+/* 상세 지시 — 2단 격자, 좁으면 1단 */
+.brief-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px;
+  background: #fafbfc; border: 1px solid #e8ecf0; border-radius: 8px;
+  padding: 14px 16px; margin-top: 4px;
+}
+@media (max-width: 640px) { .brief-grid { grid-template-columns: 1fr; } }
+.brief-grid label { display: flex; flex-direction: column; gap: 4px; }
+.brief-grid label.wide { grid-column: 1 / -1; }
+.brief-grid label > span { font-size: 11.5px; font-weight: 600; color: #555; }
+.brief-grid input[type=text], .brief-grid select { width: 100%; }
+.brief-grid label.check { flex-direction: row; align-items: center; gap: 8px; }
+.brief-grid label.check > span { font-weight: 500; color: #444; font-size: 12.5px; }
+
+/* ───────── 음향 사용 유/무 ───────── */
+.use-toggle { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; cursor: pointer; }
+.use-toggle input[type=checkbox] { margin: 0; flex-shrink: 0; }
+.slider-row.disabled { opacity: 0.42; }
+.panel select:disabled, .panel button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ───────── 자막 위치 9분할 ───────── */
+.pos-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  aspect-ratio: 9 / 12; background: #eef2f6; border: 1px solid #dde4ea;
+  border-radius: 8px; padding: 5px; margin-bottom: 4px;
+}
+.pos-cell {
+  border: 1px dashed #c3ceda; border-radius: 5px; background: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0; margin: 0;
+  transition: background .12s, border-color .12s;
+}
+.pos-cell:hover { border-color: #93b4d0; background: #f4f9fd; }
+.pos-cell > span {
+  display: block; width: 60%; height: 5px; border-radius: 3px; background: #c3ceda;
+}
+.pos-cell.active { border: 2px solid #2563eb; border-style: solid; background: #eff6ff; }
+.pos-cell.active > span { background: #2563eb; }
+.fine-tune { padding: 8px 10px; background: #fafbfc; border: 1px solid #e8ecf0; border-radius: 8px; }
